@@ -14,14 +14,12 @@ import {
   ShieldAlert,
   CalendarClock,
   Dice5,
+  Edit,
+  Bell,
 } from "lucide-react";
 
-// === Helper Functions (อัปเดต) ===
-
-/** สร้าง Key ที่ไม่ซ้ำกันสำหรับ item */
+// === Helper Functions (เหมือนเดิม) ===
 const getItemKey = (item) => `${item.startTime}-${item.activityId}`;
-
-/** คำวณตัวคูณเงินรางวัล */
 const getRewardMultiplier = (activityLevel) => {
   const baseMin = 10;
   const baseMax = 15;
@@ -32,20 +30,14 @@ const getRewardMultiplier = (activityLevel) => {
   );
   return Math.floor(Math.random() * (baseMax - minReward + 1)) + minReward;
 };
-
-/** แปลง "HH:mm" เป็นจำนวนนาที */
 const timeToMinutes = (timeStr) => {
   if (!timeStr) return 0;
   const [hours, minutes] = timeStr.split(":").map(Number);
   return hours * 60 + minutes;
 };
-
-/** ดึง "วันนี้" เป็น YYYY-MM-DD */
 const getTodayDateString = () => {
   return new Date().toLocaleDateString("en-CA");
 };
-
-/** ดึง Set (completed/failed) จาก localStorage */
 const getStoredTodaySet = (key) => {
   try {
     const stored = localStorage.getItem(key);
@@ -60,8 +52,6 @@ const getStoredTodaySet = (key) => {
     return new Set();
   }
 };
-
-/** บันทึก Set (completed/failed) ลง localStorage */
 const storeTodaySet = (key, set) => {
   try {
     const data = {
@@ -73,8 +63,6 @@ const storeTodaySet = (key, set) => {
     console.error("Failed to store state in localStorage", e);
   }
 };
-
-/** คำนวณรางวัล Quest */
 const calculateQuestReward = (difficulty) => {
   const rand = (min, max) => Math.floor(Math.random() * (max - min + 1)) + min;
   switch (difficulty) {
@@ -88,32 +76,18 @@ const calculateQuestReward = (difficulty) => {
       return 0;
   }
 };
-
-// === START CHANGE: (ใหม่) ฟังก์ชันนับถอยหลัง Quest ===
-/**
- * คำนวณเวลานับถอยหลัง
- * @param {string} endTimeISO - เวลาหมดเขต (ISO String)
- * @param {Date} now - เวลาปัจจุบัน (Date object)
- * @returns {string} - "เหลือ 02:30:15"
- */
 const getQuestCountdown = (endTimeISO, now) => {
   const endTime = new Date(endTimeISO);
-  const diff = endTime - now; // (milliseconds)
-
-  // ถ้าหมดเวลาแล้ว (เผื่อไว้)
+  const diff = endTime - now;
   if (diff <= 0) return "หมดเวลา";
-
   const totalSeconds = Math.floor(diff / 1000);
   const hours = Math.floor(totalSeconds / 3600);
   const minutes = Math.floor((totalSeconds % 3600) / 60);
   const seconds = totalSeconds % 60;
-
-  // PadStart(2, '0') เพื่อให้เป็นเลข 2 หลักเสมอ (เช่น 05)
   return `เหลือ ${hours.toString().padStart(2, "0")}:${minutes
     .toString()
     .padStart(2, "0")}:${seconds.toString().padStart(2, "0")}`;
 };
-// === END CHANGE ===
 
 // === Main Component ===
 function Home() {
@@ -135,8 +109,9 @@ function Home() {
   const [showConfirm, setShowConfirm] = useState(false);
   const [rewardInfo, setRewardInfo] = useState(null);
 
-  const [isAddingQuest, setIsAddingQuest] = useState(false);
-  const [selectedQuest, setSelectedQuest] = useState(null);
+  const [isTaskModalOpen, setIsTaskModalOpen] = useState(false);
+  const [taskToEdit, setTaskToEdit] = useState(null);
+  const [selectedTask, setSelectedTask] = useState(null);
 
   // --- 1. ดึงข้อมูล DB ---
   const user = useLiveQuery(() => db.userProfile.toCollection().first());
@@ -144,19 +119,53 @@ function Home() {
   const routineSets = useLiveQuery(() => db.routineSets.toArray(), []);
   const allActivities = useLiveQuery(() => db.activities.toArray(), []);
   const penalties = useLiveQuery(() => db.penalties.toArray(), []);
-  const allQuests = useLiveQuery(() => db.quests.toArray(), []);
+  const allTasks = useLiveQuery(() => db.tasks.toArray(), []);
 
-  const activeQuests = useMemo(() => {
-    return allQuests ? allQuests.filter((q) => q.status === "active") : [];
-  }, [allQuests]);
+  // === 2. START CHANGE: (ใหม่) Logic การจัดเรียง (Sorting) v2 ===
+  const activeTasks = useMemo(() => {
+    if (!allTasks) return [];
+
+    const now = currentTime.getTime();
+    const tasks = allTasks.filter((q) => q.status === "active");
+
+    // --- Group 1: Tasks ที่เริ่มไปแล้ว ---
+    // (รวม Tasks ที่หมดเวลาแล้ว และ Tasks ที่กำลังดำเนินการ)
+    const startedTasks = tasks.filter(
+      (q) => new Date(q.startTime).getTime() <= now
+    );
+
+    // --- Group 2: Tasks ที่ยังไม่เริ่ม ---
+    const notStartedTasks = tasks.filter(
+      (q) => new Date(q.startTime).getTime() > now
+    );
+
+    // --- Sort Group 1: (Rule: เรียงตามเวลาจบ, ใครจบก่อน/หมดเวลาก่อน ขึ้นก่อน) ---
+    startedTasks.sort((a, b) => {
+      // (จัดการ Event ที่ไม่มีเวลาจบ -> ให้ไปอยู่ท้ายสุดของกลุ่มนี้)
+      if (a.endTime === null && b.endTime === null) return 0; // Events ทั้งคู่
+      if (a.endTime === null) return 1; // a (Event) ไปอยู่หลัง b (Task)
+      if (b.endTime === null) return -1; // b (Event) ไปอยู่หลัง a (Task)
+
+      // Task ทั้งคู่, เรียงตามเวลาจบ
+      return new Date(a.endTime) - new Date(b.endTime);
+    });
+
+    // --- Sort Group 2: (Rule: เรียงตามเวลาเริ่ม, ใครเริ่มก่อน ขึ้นก่อน) ---
+    notStartedTasks.sort((a, b) => {
+      return new Date(a.startTime) - new Date(b.startTime);
+    });
+
+    // รวม 2 กลุ่ม
+    return [...startedTasks, ...notStartedTasks];
+  }, [allTasks, currentTime]); // (สำคัญ) ต้องอัปเดตเมื่อ 'currentTime' เปลี่ยน
+  // === END CHANGE ===
 
   // --- 2. Ticker (ตัวนับเวลา) ---
   useEffect(() => {
     // (Logic ส่วนนี้เหมือนเดิม)
     const timer = setInterval(() => {
       const now = new Date();
-      setCurrentTime(now); // (สำคัญ) อัปเดต currentTime ทุกวินาที
-
+      setCurrentTime(now);
       const storedDate = JSON.parse(
         localStorage.getItem("completedItems") || "{}"
       ).date;
@@ -358,7 +367,22 @@ function Home() {
     if (nextActivity) setOverrideActivity(nextActivity);
   };
 
-  // --- 8. JSX ---
+  // --- 8. Handlers (Task/Quest) ---
+  const openAddTaskModal = () => {
+    setTaskToEdit(null);
+    setIsTaskModalOpen(true);
+  };
+  const openEditTaskModal = (task) => {
+    setSelectedTask(null);
+    setTaskToEdit(task);
+    setIsTaskModalOpen(true);
+  };
+  const closeTaskModal = () => {
+    setIsTaskModalOpen(false);
+    setTaskToEdit(null);
+  };
+
+  // --- 9. JSX ---
   return (
     <>
       {/* ส่วนบน: เวลา (เหมือนเดิม) */}
@@ -423,26 +447,25 @@ function Home() {
       {/* ส่วน Quest (อัปเดต) */}
       <div style={styles.questSection}>
         <div style={styles.questHeader}>
-          <h4>📜 Quests</h4>
-          <button
-            onClick={() => setIsAddingQuest(true)}
-            style={styles.questAddButton}
-          >
+          <h4>📜 Tasks</h4>
+          <button onClick={openAddTaskModal} style={styles.questAddButton}>
             <Plus size={18} />
           </button>
         </div>
 
-        {activeQuests.length > 0 ? (
-          activeQuests.map((quest) => {
-            // === START CHANGE: Logic ใหม่สำหรับแสดงผลเวลา Quest ===
-            const now = currentTime; // (สำคัญ) ใช้ currentTime จาก state
-            const startTime = new Date(quest.startTime);
-            const endTime = new Date(quest.endTime);
-            const isExpired = now > endTime;
+        {/* (อัปเดต) แสดงรายการ Tasks ที่จัดเรียงแล้ว */}
+        {activeTasks.length > 0 ? (
+          activeTasks.map((task) => {
+            const now = currentTime;
+            const startTime = new Date(task.startTime);
+            const endTime = task.endTime ? new Date(task.endTime) : null;
+            const isExpired = endTime && now > endTime;
             const hasStarted = now > startTime;
+            const isEventNoEnd = task.type === "event" && !endTime;
 
             let timeText = "";
-            let timeStyle = styles.questItem_span; // Default
+            let timeStyle = styles.questItem_span;
+            const borderColor = task.type === "quest" ? "#64cfff" : "#c864ff";
 
             if (isExpired) {
               timeText = `(หมดเวลาแล้ว)`;
@@ -451,16 +474,16 @@ function Home() {
                 color: "#ffaaaa",
                 fontWeight: "bold",
               };
-            } else if (hasStarted) {
-              // (ใหม่) เรียกใช้ Countdown
-              timeText = getQuestCountdown(quest.endTime, now);
+            } else if (hasStarted && endTime) {
+              timeText = getQuestCountdown(task.endTime, now);
               timeStyle = {
                 ...styles.questItem_span,
                 color: "#FFD700",
                 fontWeight: "bold",
               };
+            } else if (hasStarted && isEventNoEnd) {
+              timeText = `(Event เริ่มแล้ว)`;
             } else {
-              // (เหมือนเดิม)
               timeText = `เริ่ม: ${startTime.toLocaleString("th-TH", {
                 day: "numeric",
                 month: "short",
@@ -468,23 +491,23 @@ function Home() {
                 minute: "2-digit",
               })}`;
             }
-            // === END CHANGE ===
 
             return (
               <div
-                key={quest.id}
-                onClick={() => setSelectedQuest(quest)}
-                style={isExpired ? styles.questItemExpired : styles.questItem}
+                key={task.id}
+                onClick={() => setSelectedTask(task)}
+                style={{
+                  ...(isExpired ? styles.questItemExpired : styles.questItem),
+                  borderLeftColor: isExpired ? "#ff3b30" : borderColor,
+                }}
               >
-                <p style={styles.questItem_p}>{quest.name}</p>
-                {/* === START CHANGE: ใช้ Style และ Text ใหม่ === */}
+                <p style={styles.questItem_p}>{task.name}</p>
                 <span style={timeStyle}>{timeText}</span>
-                {/* === END CHANGE === */}
               </div>
             );
           })
         ) : (
-          <p style={styles.emptyText}>ไม่มีเควสในตอนนี้</p>
+          <p style={styles.emptyText}>ไม่มี Task ในตอนนี้</p>
         )}
       </div>
 
@@ -513,18 +536,20 @@ function Home() {
         <RewardModal info={rewardInfo} onClose={closeRewardModal} />
       )}
 
-      {/* Modals ใหม่สำหรับ Quest (อัปเดต) */}
-      {isAddingQuest && (
-        <AddQuestModal
-          onClose={() => setIsAddingQuest(false)}
+      {/* Modals ใหม่สำหรับ Task (อัปเดต) */}
+      {isTaskModalOpen && (
+        <TaskModal
+          onClose={closeTaskModal}
           penalties={penalties || []}
+          taskToEdit={taskToEdit}
         />
       )}
 
-      {selectedQuest && (
-        <QuestDetailModal
-          quest={selectedQuest}
-          onClose={() => setSelectedQuest(null)}
+      {selectedTask && (
+        <TaskDetailModal
+          task={selectedTask}
+          onClose={() => setSelectedTask(null)}
+          onEdit={openEditTaskModal}
           user={user}
         />
       )}
@@ -533,15 +558,18 @@ function Home() {
 }
 
 // =======================================================
-// === (อัปเดต) Component: Modal สร้าง Quest ===
+// === (อัปเดต) Component: Modal สร้าง/แก้ไข Task ===
 // =======================================================
-function AddQuestModal({ onClose, penalties }) {
-  const [name, setName] = useState("");
-  const [detail, setDetail] = useState("");
-  const [startTime, setStartTime] = useState("");
-  const [endTime, setEndTime] = useState("");
-  const [difficulty, setDifficulty] = useState("low");
-  const [penaltyText, setPenaltyText] = useState("");
+function TaskModal({ onClose, penalties, taskToEdit }) {
+  const isEditMode = !!taskToEdit;
+
+  const [name, setName] = useState(taskToEdit?.name || "");
+  const [detail, setDetail] = useState(taskToEdit?.detail || "");
+  const [startTime, setStartTime] = useState(taskToEdit?.startTime || "");
+  const [endTime, setEndTime] = useState(taskToEdit?.endTime || "");
+  const [difficulty, setDifficulty] = useState(taskToEdit?.difficulty || "low");
+  const [penaltyText, setPenaltyText] = useState(taskToEdit?.penalty || "");
+  const [type, setType] = useState(taskToEdit?.type || "quest");
   const [error, setError] = useState(null);
 
   const handleRandomPenalty = () => {
@@ -555,20 +583,34 @@ function AddQuestModal({ onClose, penalties }) {
 
   const handleSubmit = async () => {
     setError(null);
-    if (!name || !startTime || !endTime) {
-      setError("กรุณากรอกชื่อ, เวลาเริ่ม, และเวลาหมดเขต");
+    if (!name || !startTime) {
+      setError("กรุณากรอกชื่อ และ เวลาเริ่ม");
       return;
     }
-    const start = new Date(startTime);
-    const end = new Date(endTime);
-    if (start >= end) {
-      setError("เวลาเริ่ม ต้องมาก่อน เวลาหมดเขต");
-      return;
-    }
-    const reward = calculateQuestReward(difficulty);
 
-    let finalPenalty = penaltyText.trim();
-    if (finalPenalty === "") {
+    let finalEndTime = endTime;
+    if (type === "event" && endTime === "") {
+      finalEndTime = null;
+    }
+
+    if (type === "quest" && !endTime) {
+      setError('"Quest" ต้องมีเวลาหมดเขต');
+      return;
+    }
+
+    if (finalEndTime) {
+      const start = new Date(startTime);
+      const end = new Date(finalEndTime);
+      if (start >= end) {
+        setError("เวลาเริ่ม ต้องมาก่อน เวลาหมดเขต");
+        return;
+      }
+    }
+
+    const reward = type === "quest" ? calculateQuestReward(difficulty) : 0;
+
+    let finalPenalty = type === "quest" ? penaltyText.trim() : "N/A";
+    if (type === "quest" && finalPenalty === "") {
       const random =
         penalties.length > 0
           ? penalties[Math.floor(Math.random() * penalties.length)]
@@ -576,20 +618,27 @@ function AddQuestModal({ onClose, penalties }) {
       finalPenalty = random.name;
     }
 
+    const taskData = {
+      name: name,
+      detail: detail,
+      startTime: startTime,
+      endTime: finalEndTime,
+      difficulty: type === "quest" ? difficulty : null,
+      reward: reward,
+      penalty: finalPenalty,
+      status: taskToEdit?.status || "active",
+      type: type,
+    };
+
     try {
-      await db.quests.add({
-        name: name,
-        detail: detail,
-        startTime: startTime,
-        endTime: endTime,
-        difficulty: difficulty,
-        reward: reward,
-        penalty: finalPenalty,
-        status: "active",
-      });
+      if (isEditMode) {
+        await db.tasks.update(taskToEdit.id, taskData);
+      } else {
+        await db.tasks.add(taskData);
+      }
       onClose();
     } catch (error) {
-      console.error("Failed to add quest:", error);
+      console.error("Failed to save task:", error);
       setError("เกิดข้อผิดพลาดในการบันทึก");
     }
   };
@@ -598,16 +647,26 @@ function AddQuestModal({ onClose, penalties }) {
     <div style={styles.modalOverlay}>
       <div style={styles.modalContent}>
         <div style={styles.modalHeader}>
-          <h3>สร้างเควสใหม่</h3>
+          <h3>{isEditMode ? "แก้ไข Task" : "สร้าง Task ใหม่"}</h3>
           <button onClick={onClose} style={styles.closeButton}>
             <X size={24} />
           </button>
         </div>
 
-        {/* === Form UI (อัปเดต) === */}
         <div style={styles.modalForm}>
           <div style={styles.inputGroup}>
-            <label>ชื่อเควส</label>
+            <label>ประเภท</label>
+            <select
+              value={type}
+              onChange={(e) => setType(e.target.value)}
+              style={styles.select}
+            >
+              <option value="quest">Quest (มีรางวัล/บทลงโทษ)</option>
+              <option value="event">Event (แจ้งเตือน)</option>
+            </select>
+          </div>
+          <div style={styles.inputGroup}>
+            <label>ชื่อ</label>
             <input
               type="text"
               value={name}
@@ -634,7 +693,7 @@ function AddQuestModal({ onClose, penalties }) {
             />
           </div>
           <div style={styles.inputGroup}>
-            <label>เวลาหมดเขต</label>
+            <label>เวลาหมดเขต {type === "event" && "(ไม่จำเป็น)"}</label>
             <input
               type="datetime-local"
               value={endTime}
@@ -643,34 +702,40 @@ function AddQuestModal({ onClose, penalties }) {
             />
           </div>
 
-          <div style={styles.inputGroup}>
-            <label>ระดับความยาก (มีผลต่อรางวัล)</label>
-            <select
-              value={difficulty}
-              onChange={(e) => setDifficulty(e.target.value)}
-              style={styles.select}
-            >
-              <option value="low">ต่ำ</option>
-              <option value="medium">กลาง</option>
-              <option value="high">สูง</option>
-            </select>
-          </div>
-
-          <div style={styles.inputGroup}>
-            <label>บทลงโทษ (ถ้าพลาด)</label>
-            <div style={styles.penaltyInputBox}>
-              <input
-                type="text"
-                value={penaltyText}
-                onChange={(e) => setPenaltyText(e.target.value)}
-                style={styles.input}
-                placeholder="(ปล่อยว่างเพื่อสุ่ม)"
-              />
-              <button onClick={handleRandomPenalty} style={styles.randomButton}>
-                <Dice5 size={18} />
-              </button>
-            </div>
-          </div>
+          {type === "quest" && (
+            <>
+              <div style={styles.inputGroup}>
+                <label>ระดับความยาก (มีผลต่อรางวัล)</label>
+                <select
+                  value={difficulty}
+                  onChange={(e) => setDifficulty(e.target.value)}
+                  style={styles.select}
+                >
+                  <option value="low">ต่ำ</option>
+                  <option value="medium">กลาง</option>
+                  <option value="high">สูง</option>
+                </select>
+              </div>
+              <div style={styles.inputGroup}>
+                <label>บทลงโทษ (ถ้าพลาด)</label>
+                <div style={styles.penaltyInputBox}>
+                  <input
+                    type="text"
+                    value={penaltyText}
+                    onChange={(e) => setPenaltyText(e.target.value)}
+                    style={styles.input}
+                    placeholder="(ปล่อยว่างเพื่อสุ่ม)"
+                  />
+                  <button
+                    onClick={handleRandomPenalty}
+                    style={styles.randomButton}
+                  >
+                    <Dice5 size={18} />
+                  </button>
+                </div>
+              </div>
+            </>
+          )}
 
           {error && (
             <div style={styles.errorBox}>
@@ -680,7 +745,8 @@ function AddQuestModal({ onClose, penalties }) {
           )}
 
           <button onClick={handleSubmit} style={styles.saveButton}>
-            <Plus size={18} /> สร้างเควส
+            {isEditMode ? <Edit size={18} /> : <Plus size={18} />}
+            {isEditMode ? "บันทึกการแก้ไข" : "สร้าง Task"}
           </button>
         </div>
       </div>
@@ -688,78 +754,136 @@ function AddQuestModal({ onClose, penalties }) {
   );
 }
 
-// (Component 'QuestDetailModal' เหมือนเดิม)
-function QuestDetailModal({ quest, onClose, user }) {
-  const handleQuestDone = async () => {
-    if (!user) return;
-    const newMoney = user.money + quest.reward;
-    try {
-      await db.userProfile.update(user.id, { money: newMoney });
-      await db.quests.delete(quest.id);
-      onClose();
-    } catch (error) {
-      console.error("Failed to complete quest:", error);
+// =======================================================
+// === (อัปเดต) Component: Modal ดูรายละเอียด Task ===
+// =======================================================
+function TaskDetailModal({ task, onClose, onEdit, user }) {
+  const handleTaskAction = async (action) => {
+    if (action === "done" && user) {
+      const newMoney = user.money + task.reward;
+      try {
+        await db.userProfile.update(user.id, { money: newMoney });
+        await db.tasks.delete(task.id);
+        onClose();
+      } catch (error) {
+        console.error("Failed to complete quest:", error);
+      }
+    } else if (action === "fail") {
+      try {
+        await db.tasks.delete(task.id);
+        onClose();
+      } catch (error) {
+        console.error("Failed to fail quest:", error);
+      }
+    } else if (action === "acknowledge") {
+      try {
+        await db.tasks.delete(task.id);
+        onClose();
+      } catch (error) {
+        console.error("Failed to ack event:", error);
+      }
     }
   };
-  const handleQuestFail = async () => {
-    try {
-      await db.quests.delete(quest.id);
-      onClose();
-    } catch (error) {
-      console.error("Failed to fail quest:", error);
-    }
-  };
-  const isExpired = new Date() > new Date(quest.endTime);
+
+  const isExpired = task.endTime && new Date() > new Date(task.endTime);
+
   return (
     <div style={styles.modalOverlay}>
       <div style={styles.modalContent}>
         <div style={styles.modalHeader}>
-          <h3 style={isExpired ? { color: "#ffaaaa" } : {}}>{quest.name}</h3>
+          <h3 style={isExpired ? { color: "#ffaaaa" } : {}}>{task.name}</h3>
           <button onClick={onClose} style={styles.closeButton}>
             <X size={24} />
           </button>
         </div>
+
         <div style={styles.modalDetailBody}>
-          <p>{quest.detail || "ไม่มีรายละเอียด"}</p>
+          <p>{task.detail || "ไม่มีรายละเอียด"}</p>
           <hr style={styles.hr} />
-          <div style={styles.rewardInfoBox}>
-            <Coins size={18} color="#FFD700" />
-            <span>รางวัล:</span>
-            <span style={{ color: "#FFD700" }}>
-              <strong>{quest.reward} Coins</strong>
-            </span>
-            <span>(ความยาก: {quest.difficulty})</span>
-          </div>
-          <div style={{ ...styles.rewardInfoBox, color: "#ffaaaa" }}>
-            <ShieldAlert size={18} />
-            <span>บทลงโทษ (ถ้าพลาด):</span>
-            <span style={{ color: "#ffaaaa" }}>
-              <strong>{quest.penalty}</strong>
-            </span>
-          </div>
+
+          {task.type === "quest" && (
+            <>
+              <div style={styles.rewardInfoBox}>
+                <Coins size={18} color="#FFD700" />
+                <span>รางวัล:</span>
+                <span style={{ color: "#FFD700" }}>
+                  <strong>{task.reward} Coins</strong>
+                </span>
+                <span>(ความยาก: {task.difficulty})</span>
+              </div>
+              <div style={{ ...styles.rewardInfoBox, color: "#ffaaaa" }}>
+                <ShieldAlert size={18} />
+                <span>บทลงโทษ (ถ้าพลาด):</span>
+                <span style={{ color: "#ffaaaa" }}>
+                  <strong>{task.penalty}</strong>
+                </span>
+              </div>
+            </>
+          )}
+
           <div style={{ ...styles.rewardInfoBox, color: "#aaa" }}>
             <CalendarClock size={18} />
-            <span>หมดเขต:</span>
-            <span>{new Date(quest.endTime).toLocaleString("th-TH")}</span>
+            <span>เวลาเริ่ม:</span>
+            <span>{new Date(task.startTime).toLocaleString("th-TH")}</span>
           </div>
-          {isExpired && (
-            <div style={styles.errorBox}>
-              <AlertTriangle size={18} />
-              <span>เควสนี้หมดเวลาแล้ว</span>
+
+          {task.endTime && (
+            <div
+              style={{
+                ...styles.rewardInfoBox,
+                color: isExpired ? "#ffaaaa" : "#aaa",
+              }}
+            >
+              <CalendarClock size={18} />
+              <span>หมดเขต:</span>
+              <span>{new Date(task.endTime).toLocaleString("th-TH")}</span>
             </div>
           )}
+
+          {isExpired &&
+            task.type === "quest" && ( // (แก้) เฉพาะ Quest ที่โชว์
+              <div style={styles.errorBox}>
+                <AlertTriangle size={18} />
+                <span>เควสนี้หมดเวลาแล้ว</span>
+              </div>
+            )}
         </div>
+
         <div style={styles.modalFooter}>
-          <button onClick={handleQuestFail} style={styles.cancelButton}>
-            <X size={18} /> Fail
-          </button>
-          <button
-            onClick={handleQuestDone}
-            style={styles.confirmButton}
-            disabled={isExpired}
-          >
-            <Check size={18} /> Done
-          </button>
+          {task.type === "quest" ? (
+            <>
+              <button onClick={() => onEdit(task)} style={styles.editButton}>
+                <Edit size={18} /> แก้ไข
+              </button>
+              <div style={{ flexGrow: 1 }} />
+              <button
+                onClick={() => handleTaskAction("fail")}
+                style={styles.cancelButton}
+              >
+                <X size={18} /> Fail
+              </button>
+              <button
+                onClick={() => handleTaskAction("done")}
+                style={styles.confirmButton}
+                disabled={isExpired}
+              >
+                <Check size={18} /> Done
+              </button>
+            </>
+          ) : (
+            <>
+              <button onClick={() => onEdit(task)} style={styles.editButton}>
+                <Edit size={18} /> แก้ไข
+              </button>
+              <div style={{ flexGrow: 1 }} />
+              <button
+                onClick={() => handleTaskAction("acknowledge")}
+                style={styles.confirmButton}
+              >
+                <Check size={18} /> รับทราบ
+              </button>
+            </>
+          )}
         </div>
       </div>
     </div>
@@ -1011,6 +1135,7 @@ const styles = {
   },
   rewardInfoBox: {
     display: "flex",
+    flexWrap: "wrap",
     justifyContent: "space-between",
     alignItems: "center",
     backgroundColor: "#333",
@@ -1113,6 +1238,18 @@ const styles = {
     border: "none",
     borderTop: "1px solid #444",
     margin: "5px 0",
+  },
+  editButton: {
+    background: "#555",
+    color: "white",
+    border: "none",
+    padding: "10px 15px",
+    borderRadius: "5px",
+    cursor: "pointer",
+    display: "flex",
+    alignItems: "center",
+    gap: "5px",
+    fontSize: "1rem",
   },
 };
 

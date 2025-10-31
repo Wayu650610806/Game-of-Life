@@ -52,11 +52,11 @@ function EditRoutine() {
   return (
     <div style={styles.page}>
       <div style={styles.header}>
-        <h2>ตั้งค่า Routine 7 วัน</h2>
+        <h2>Edit Routine</h2>
         {/* ลิงก์ไปหน้า "จัดการเทมเพลต" */}
         <Link to="/routine-set-manager" style={styles.manageButton}>
           <Cog size={20} />
-          <span>จัดการ Routine Sets</span>
+          <span>Routine Sets</span>
         </Link>
       </div>
 

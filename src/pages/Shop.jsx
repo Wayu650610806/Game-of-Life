@@ -1,8 +1,7 @@
 // src/pages/Shop.jsx
-import React, { useState, useEffect } from "react"; // <-- 1. IMPORT useEffect
+import React, { useState, useEffect } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { db } from "../db";
-// === 2. IMPORT ไอคอนใหม่ ===
 import {
   Plus,
   X,
@@ -14,24 +13,31 @@ import {
   Trash2,
 } from "lucide-react";
 
-// ... (Helper Functions 'calculatePrice', 'getRankName', 'getRankColor' เหมือนเดิม)
+// === 1. START CHANGE: อัปเดตสูตรคำนวณราคา ===
 const calculatePrice = (rank) => {
-  const BASE_DAILY_EARNING = 1000;
-  switch (String(rank)) {
+  // โดย x = random(3100-5100)
+  const x = Math.floor(Math.random() * (5100 - 3100 + 1)) + 3100;
+
+  switch (
+    String(rank) // ใช้ String() เพื่อความปลอดภัย
+  ) {
     case "1":
-      return BASE_DAILY_EARNING * 1;
+      return 7 * x; // 7 วัน
     case "2":
-      return BASE_DAILY_EARNING * 7;
+      return 30 * x; // 30 วัน
     case "3":
-      return BASE_DAILY_EARNING * 30;
+      return 180 * x; // 6 เดือน (180 วัน)
     case "4":
-      return BASE_DAILY_EARNING * 180;
+      return 365 * x; // 1 ปี
     case "5":
-      return BASE_DAILY_EARNING * 365;
+      return 730 * x; // 2 ปี (730 วัน)
     default:
-      return 999999;
+      return 9999999; // (เลขสำรอง)
   }
 };
+// === END CHANGE ===
+
+// (Helper Function 'getRankName', 'getRankColor' เหมือนเดิม)
 const getRankName = (rank) => {
   switch (String(rank)) {
     case "1":
@@ -65,21 +71,16 @@ const getRankColor = (rank) => {
   }
 };
 
-// === Main Component ===
+// === Main Component (เหมือนเดิม) ===
 function Shop() {
   const [currentTab, setCurrentTab] = useState("items");
   const [confirmBuy, setConfirmBuy] = useState(null);
-
-  // === 3. START CHANGE: อัปเดต State การจัดการ Modal ===
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
-  const [itemToEdit, setItemToEdit] = useState(null); // (null หรือ item object)
-  // === END CHANGE ===
+  const [itemToEdit, setItemToEdit] = useState(null);
 
-  // ดึงข้อมูล
   const user = useLiveQuery(() => db.userProfile.toCollection().first());
   const shopItems = useLiveQuery(() => db.shopItems.toArray(), []);
 
-  // (ฟังก์ชัน 'handleBuyItem' เหมือนเดิม)
   const handleBuyItem = async (item) => {
     if (!user || user.money < item.price) {
       alert("มีเงินไม่พอ!");
@@ -98,7 +99,6 @@ function Shop() {
     }
   };
 
-  // === 4. (ใหม่) ฟังก์ชันลบไอเทม ===
   const handleDeleteItem = async (id, name) => {
     if (
       window.confirm(`คุณแน่ใจหรือไม่ว่าต้องการลบ "${name}" ออกจากร้านค้า?`)
@@ -112,36 +112,31 @@ function Shop() {
     }
   };
 
-  // === 5. (ใหม่) ฟังก์ชันเปิด Modal แก้ไข ===
   const handleOpenEditModal = (item) => {
-    setItemToEdit(item); // ส่ง item ไป
-    setIsAddModalOpen(true); // เปิด Modal เดียวกัน
+    setItemToEdit(item);
+    setIsAddModalOpen(true);
   };
 
-  // === 6. (ใหม่) ฟังก์ชันเปิด Modal เพิ่ม ===
   const handleOpenAddModal = () => {
-    setItemToEdit(null); // ไม่ส่ง item (โหมด Add)
-    setIsAddModalOpen(true); // เปิด Modal
+    setItemToEdit(null);
+    setIsAddModalOpen(true);
   };
 
-  // === 7. (ใหม่) ฟังก์ชันปิด Modal ===
   const handleCloseModal = () => {
     setIsAddModalOpen(false);
-    setItemToEdit(null); // ล้างค่า
+    setItemToEdit(null);
   };
 
   return (
     <div style={styles.page}>
       <div style={styles.header}>
         <h2>ร้านค้า</h2>
-        {/* 8. อัปเดตปุ่ม "เพิ่มของ" */}
         <button onClick={handleOpenAddModal} style={styles.addButton}>
           <Plus size={20} />
           <span>เพิ่มของ</span>
         </button>
       </div>
 
-      {/* --- Tabs (เหมือนเดิม) --- */}
       <div style={styles.tabs}>
         <button
           style={currentTab === "items" ? styles.tabActive : styles.tab}
@@ -157,7 +152,6 @@ function Shop() {
         </button>
       </div>
 
-      {/* --- Content (อัปเดต Card) --- */}
       <div style={styles.content}>
         {currentTab === "items" && (
           <div style={styles.itemGrid}>
@@ -182,7 +176,6 @@ function Shop() {
                     </p>
                     <p style={styles.itemDetail}>{item.detail}</p>
 
-                    {/* --- 9. (ใหม่) แถบปุ่ม Admin --- */}
                     <div style={styles.adminBar}>
                       <button
                         onClick={() => handleOpenEditModal(item)}
@@ -198,7 +191,6 @@ function Shop() {
                       </button>
                     </div>
 
-                    {/* --- แถบปุ่มซื้อ (เหมือนเดิม) --- */}
                     <div style={styles.itemFooter}>
                       <span style={styles.itemPrice}>
                         <Coins size={16} color="#FFD700" />
@@ -233,12 +225,8 @@ function Shop() {
         )}
       </div>
 
-      {/* --- 10. (อัปเดต) Modals --- */}
       {isAddModalOpen && (
-        <AddShopItemModal
-          onClose={handleCloseModal}
-          itemToEdit={itemToEdit} // ส่ง item (หรือ null) ไป
-        />
+        <AddShopItemModal onClose={handleCloseModal} itemToEdit={itemToEdit} />
       )}
 
       {confirmBuy && (
@@ -257,15 +245,28 @@ function Shop() {
 // === (อัปเดต) Component ย่อย: Modal เพิ่ม/แก้ไข ไอเทม ===
 // =======================================================
 function AddShopItemModal({ onClose, itemToEdit }) {
-  // 1. ตรวจสอบโหมด
-  const isEditMode = !!itemToEdit; // (true ถ้ามี item, false ถ้าไม่มี)
-
-  // 2. ตั้งค่า State เริ่มต้น (ถ้ามี itemToEdit ให้ใช้ค่าเก่า)
+  const isEditMode = !!itemToEdit;
   const [name, setName] = useState(itemToEdit?.name || "");
   const [detail, setDetail] = useState(itemToEdit?.detail || "");
-  const [rank, setRank] = useState(itemToEdit?.rank.toString() || "1"); // (ต้องเป็น string)
+  const [rank, setRank] = useState(itemToEdit?.rank.toString() || "1");
   const [imageUrl, setImageUrl] = useState(itemToEdit?.imageUrl || "");
   const [error, setError] = useState(null);
+
+  // === (ใหม่) State สำหรับราคาที่คำนวณแล้ว ===
+  const [calculatedPrice, setCalculatedPrice] = useState(null);
+
+  // === (ใหม่) Effect สำหรับคำนวณราคาใหม่ เมื่อ Rank เปลี่ยน ===
+  useEffect(() => {
+    // โหมดแก้ไข: ใช้ราคาเดิม
+    if (isEditMode) {
+      setCalculatedPrice(itemToEdit.price);
+    }
+    // โหมดเพิ่ม: คำนวณใหม่
+    else {
+      setCalculatedPrice(calculatePrice(rank));
+    }
+    // (เราจะไม่คำนวณใหม่ทุกครั้งที่ rank เปลี่ยนในโหมด Edit)
+  }, [rank, isEditMode, itemToEdit]);
 
   const handleImageUpload = (e) => {
     const file = e.target.files[0];
@@ -282,28 +283,39 @@ function AddShopItemModal({ onClose, itemToEdit }) {
       return;
     }
 
-    // 3. คำนวณราคา (เหมือนเดิม)
-    const price = calculatePrice(rank);
+    // === 2. START CHANGE: ใช้ราคาที่คำนวณไว้ ===
+    // ถ้าเป็นโหมด Add, ให้คำนวณราคา "สด" ตอนกดบันทึก
+    // ถ้าเป็นโหมด Edit, ให้ใช้ราคาเดิม (เว้นแต่ Rank จะเปลี่ยน)
+    let finalPrice;
+    if (isEditMode) {
+      // ถ้า Rank เปลี่ยน, คำนวณใหม่
+      if (rank !== itemToEdit.rank.toString()) {
+        finalPrice = calculatePrice(rank);
+      } else {
+        // ถ้า Rank ไม่เปลี่ยน, ใช้ราคาเดิม
+        finalPrice = itemToEdit.price;
+      }
+    } else {
+      // โหมด Add, คำนวณใหม่
+      finalPrice = calculatePrice(rank);
+    }
+    // === END CHANGE ===
 
-    // 4. สร้าง object ข้อมูล
     const newItemData = {
       name,
       detail,
       rank: parseInt(rank, 10),
-      price,
+      price: finalPrice, // <-- ใช้ราคาที่คำนวณ
       imageUrl,
     };
 
     try {
-      // 5. (อัปเดต) ตรวจสอบโหมด
       if (isEditMode) {
-        // โหมดแก้ไข: อัปเดตข้อมูล
         await db.shopItems.update(itemToEdit.id, newItemData);
       } else {
-        // โหมดเพิ่ม: เพิ่มข้อมูล
         await db.shopItems.add(newItemData);
       }
-      onClose(); // ปิด Modal
+      onClose();
     } catch (e) {
       console.error(e);
       setError("เกิดข้อผิดพลาดในการบันทึก");
@@ -314,7 +326,6 @@ function AddShopItemModal({ onClose, itemToEdit }) {
     <div style={styles.modalOverlay}>
       <div style={styles.modalContent}>
         <div style={styles.modalHeader}>
-          {/* 6. (อัปเดต) เปลี่ยนชื่อ Modal ตามโหมด */}
           <h3>{isEditMode ? "แก้ไขไอเทม" : "เพิ่มไอเทมใหม่"}</h3>
           <button onClick={onClose} style={styles.closeButton}>
             <X size={24} />
@@ -339,6 +350,8 @@ function AddShopItemModal({ onClose, itemToEdit }) {
               rows={2}
             ></textarea>
           </div>
+
+          {/* === 3. START CHANGE: อัปเดต Dropdown ให้แสดงราคา === */}
           <div style={styles.inputGroup}>
             <label>ระดับ (Rank)</label>
             <select
@@ -346,13 +359,29 @@ function AddShopItemModal({ onClose, itemToEdit }) {
               onChange={(e) => setRank(e.target.value)}
               style={styles.select}
             >
-              <option value="1">1 - Common (ราคา 1 วัน)</option>
-              <option value="2">2 - Uncommon (ราคา 7 วัน)</option>
-              <option value="3">3 - Rare (ราคา 30 วัน)</option>
-              <option value="4">4 - Epic (ราคา 6 เดือน)</option>
-              <option value="5">5 - Legendary (ราคา 1 ปี)</option>
+              <option value="1">1 - Common (7 วัน)</option>
+              <option value="2">2 - Uncommon (30 วัน)</option>
+              <option value="3">3 - Rare (6 เดือน)</option>
+              <option value="4">4 - Epic (1 ปี)</option>
+              <option value="5">5 - Legendary (2 ปี)</option>
             </select>
           </div>
+
+          {/* (ใหม่) แสดงราคาที่คำนวณ */}
+          <div style={styles.rewardInfoBox}>
+            <span>ราคา (โดยประมาณ):</span>
+            <span style={{ color: "#FFD700" }}>
+              <strong>
+                {/* ถ้าโหมด Add ให้คำนวณใหม่, ถ้า Edit ให้โชว์ของเดิม */}
+                {isEditMode && rank === itemToEdit.rank.toString()
+                  ? itemToEdit.price.toLocaleString()
+                  : `~ ${(calculatePrice(rank) / 1000).toFixed(0)}k`}{" "}
+                Coins
+              </strong>
+            </span>
+          </div>
+          {/* === END CHANGE === */}
+
           <div style={styles.inputGroup}>
             <label>อัปโหลดรูปภาพ</label>
             <input
@@ -371,7 +400,6 @@ function AddShopItemModal({ onClose, itemToEdit }) {
               <span>{error}</span>
             </div>
           )}
-          {/* 7. (อัปเดต) เปลี่ยนปุ่มตามโหมด */}
           <button onClick={handleSubmit} style={styles.saveButton}>
             {isEditMode ? <Edit size={18} /> : <Plus size={18} />}
             {isEditMode ? "บันทึกการแก้ไข" : "เพิ่มไอเทม"}
@@ -427,9 +455,8 @@ function ConfirmBuyModal({ item, user, onClose, onConfirm }) {
   );
 }
 
-// === 11. (อัปเดต) CSS Styles ===
+// === CSS Styles (เหมือนเดิม) ===
 const styles = {
-  // (CSS ส่วนใหญ่เหมือนเดิม)
   page: { padding: "10px" },
   header: {
     display: "flex",
@@ -559,8 +586,6 @@ const styles = {
     textAlign: "center",
     padding: "20px",
   },
-
-  // === (ใหม่) CSS สำหรับปุ่ม Admin ===
   adminBar: {
     display: "flex",
     justifyContent: "flex-end",
@@ -585,8 +610,6 @@ const styles = {
     cursor: "pointer",
     display: "flex",
   },
-
-  // (Modal Styles)
   modalOverlay: {
     position: "fixed",
     top: 0,

@@ -1,76 +1,58 @@
 // src/pages/RoutineSetEditor.jsx
 import React, { useState, useEffect } from "react";
-import { useParams, Link } from "react-router-dom";
+// === 1. START CHANGE: Import useNavigate ===
+import { useParams, Link, useNavigate } from "react-router-dom";
+// === END CHANGE ===
 import { useLiveQuery } from "dexie-react-hooks";
 import { db } from "../db";
 import { Plus, Trash2, X, AlertTriangle, ArrowLeft } from "lucide-react";
 
-// === Helper Function: ตรวจสอบเวลาทับซ้อน ===
-/**
- * @param {string} start1 - "HH:mm"
- * @param {string} end1 - "HH:mm"
- * @param {string} start2 - "HH:mm"
- * @param {string} end2 - "HH:mm"
- * @returns {boolean} - true ถ้าทับซ้อน
- */
+// ... (Helper Function 'checkOverlap' เหมือนเดิม)
 const checkOverlap = (start1, end1, start2, end2) => {
-  // ตรรกะคือ: (StartA < EndB) และ (EndA > StartB)
   return start1 < end2 && end1 > start2;
 };
 
 // === Main Component ===
 function RoutineSetEditor() {
-  const { setId } = useParams(); // ดึง ID จาก URL
-  const [isAdding, setIsAdding] = useState(false); // State เปิด/ปิด Modal
+  const { setId } = useParams();
+  // === 2. START CHANGE: ประกาศใช้ navigate ===
+  const navigate = useNavigate();
+  // === END CHANGE ===
 
-  // 1. ดึงข้อมูล Routine Set ที่กำลังแก้ไข
+  const [isAdding, setIsAdding] = useState(false);
+
+  // ( ... Logic ดึงข้อมูล, state, handlers 'handleDeleteItem', 'handleSaveNewItem' ... ทั้งหมดเหมือนเดิม)
   const routineSet = useLiveQuery(
     () => db.routineSets.get(parseInt(setId, 10)),
-    [setId] // dependency
+    [setId]
   );
-
-  // 2. ดึง "คลัง" กิจกรรมทั้งหมด (สำหรับ Dropdown)
   const allActivities = useLiveQuery(() => db.activities.toArray(), []);
-
-  // 3. สร้าง State สำหรับเก็บ items (เราจะไม่แก้ routineSet.items ตรงๆ)
   const [items, setItems] = useState([]);
-
-  // 4. เมื่อ routineSet โหลดเสร็จ ให้คัดลอก items มาใส่ State
   useEffect(() => {
     if (routineSet) {
-      // เรียงตามเวลาเริ่มก่อน
       const sortedItems = [...routineSet.items].sort((a, b) =>
         a.startTime.localeCompare(b.startTime)
       );
       setItems(sortedItems);
     }
-  }, [routineSet]); // ทำงานใหม่เมื่อ routineSet เปลี่ยน
+  }, [routineSet]);
 
-  // === 5. Logic การจัดการ ===
-
-  // ลบ item ออกจาก Set
   const handleDeleteItem = async (indexToDelete) => {
     if (!window.confirm("ลบกิจกรรมนี้ออกจาก Set?")) return;
-
     try {
       const newItems = items.filter((_, index) => index !== indexToDelete);
-      setItems(newItems); // อัปเดต UI ทันที
-
-      // บันทึกลง DB
+      setItems(newItems);
       await db.routineSets.update(parseInt(setId, 10), { items: newItems });
     } catch (error) {
       console.error("Failed to delete item from set:", error);
     }
   };
-
-  // เมื่อ Modal "AddActivityModal" บันทึกสำเร็จ
   const handleSaveNewItem = (newItemList) => {
-    // อัปเดต State (และ UI)
     const sortedItems = [...newItemList].sort((a, b) =>
       a.startTime.localeCompare(b.startTime)
     );
     setItems(sortedItems);
-    setIsAdding(false); // ปิด Modal
+    setIsAdding(false);
   };
 
   if (!routineSet || !allActivities) {
@@ -80,20 +62,22 @@ function RoutineSetEditor() {
   return (
     <div style={styles.page}>
       <div style={styles.header}>
-        <Link to="/routine-set-manager" style={styles.backButton}>
+        {/* === 3. START CHANGE: เปลี่ยน <Link> เป็น <button> === */}
+        <button onClick={() => navigate(-1)} style={styles.backButton}>
           <ArrowLeft size={20} />
-        </Link>
+        </button>
+        {/* === END CHANGE === */}
+
         <h2 style={styles.title}>{routineSet.name}</h2>
         <button onClick={() => setIsAdding(true)} style={styles.addButton}>
           <Plus size={20} />
         </button>
       </div>
 
-      {/* --- รายการกิจกรรมใน Set นี้ --- */}
+      {/* ( ... ส่วน List และ Modal ... เหมือนเดิมทั้งหมด) */}
       <div style={styles.list}>
         {items.length > 0 ? (
           items.map((item, index) => {
-            // หาชื่อ Activity จากคลัง
             const activity = allActivities.find(
               (a) => a.id === item.activityId
             );
@@ -130,23 +114,20 @@ function RoutineSetEditor() {
         )}
       </div>
 
-      {/* --- Modal สำหรับเพิ่มกิจกรรม --- */}
       {isAdding && (
         <AddActivityModal
           onClose={() => setIsAdding(false)}
           currentSetId={parseInt(setId, 10)}
-          currentItems={items} // ส่ง items ปัจจุบันไปเช็คเวลาทับซ้อน
-          allActivities={allActivities} // ส่งคลังกิจกรรมไปให้ Dropdown
-          onSave={handleSaveNewItem} // ส่งฟังก์ชัน Callback
+          currentItems={items}
+          allActivities={allActivities}
+          onSave={handleSaveNewItem}
         />
       )}
     </div>
   );
 }
 
-// =======================================================
-// === Component ย่อย: Modal สำหรับเพิ่ม/สร้าง กิจกรรม ===
-// =======================================================
+// (Component 'AddActivityModal' เหมือนเดิมทั้งหมด)
 function AddActivityModal({
   onClose,
   currentSetId,
@@ -160,11 +141,8 @@ function AddActivityModal({
   const [newActivityName, setNewActivityName] = useState("");
   const [error, setError] = useState(null);
 
-  // ฟังก์ชันหลัก: เมื่อกดปุ่ม "บันทึก"
   const handleSubmit = async () => {
-    setError(null); // เคลียร์ error เก่า
-
-    // --- 1. ตรวจสอบ Input พื้นฐาน ---
+    setError(null);
     if (!startTime || !endTime) {
       setError("กรุณาใส่เวลาเริ่มและเวลาเสร็จ");
       return;
@@ -180,19 +158,17 @@ function AddActivityModal({
 
     let activityToSaveId = parseInt(selectedActivityId, 10);
 
-    // --- 2. ตรวจสอบว่าเป็นการ "สร้างใหม่" หรือไม่ ---
     if (selectedActivityId === "NEW") {
       if (!newActivityName.trim()) {
         setError("กรุณาตั้งชื่อกิจกรรมใหม่");
         return;
       }
       try {
-        // เพิ่มกิจกรรมใหม่ลง "คลัง" (lv 0)
         const newId = await db.activities.add({
           name: newActivityName.trim(),
           level: 0,
         });
-        activityToSaveId = newId; // ใช้ ID ใหม่นี้
+        activityToSaveId = newId;
       } catch (error) {
         console.error("Failed to create new activity:", error);
         setError("ไม่สามารถสร้างกิจกรรมใหม่ได้");
@@ -200,7 +176,6 @@ function AddActivityModal({
       }
     }
 
-    // --- 3. ตรวจสอบ "เวลาทับซ้อน" ---
     for (const item of currentItems) {
       if (checkOverlap(startTime, endTime, item.startTime, item.endTime)) {
         const conflictingActivity = allActivities.find(
@@ -213,20 +188,14 @@ function AddActivityModal({
       }
     }
 
-    // --- 4. บันทึก (ถ้าผ่านทั้งหมด) ---
     try {
       const newItem = {
         activityId: activityToSaveId,
         startTime: startTime,
         endTime: endTime,
       };
-
       const newItemsList = [...currentItems, newItem];
-
-      // อัปเดต DB
       await db.routineSets.update(currentSetId, { items: newItemsList });
-
-      // ส่งรายการใหม่กลับไปหน้าหลัก
       onSave(newItemsList);
     } catch (error) {
       console.error("Failed to save item to set:", error);
@@ -243,9 +212,7 @@ function AddActivityModal({
             <X size={24} />
           </button>
         </div>
-
         <div style={styles.modalForm}>
-          {/* --- ส่วนเวลา --- */}
           <div style={styles.timeInputGroup}>
             <div style={styles.inputGroup}>
               <label>เวลาเริ่ม (24hr)</label>
@@ -266,8 +233,6 @@ function AddActivityModal({
               />
             </div>
           </div>
-
-          {/* --- ส่วนเลือกกิจกรรม --- */}
           <div style={styles.inputGroup}>
             <label>เลือกกิจกรรม</label>
             <select
@@ -291,8 +256,6 @@ function AddActivityModal({
               </option>
             </select>
           </div>
-
-          {/* --- ส่วนสร้างกิจกรรมใหม่ (ถ้าเลือก "NEW") --- */}
           {selectedActivityId === "NEW" && (
             <div style={styles.inputGroup}>
               <label>ชื่อกิจกรรมใหม่ (จะเริ่มที่ Lv 0)</label>
@@ -305,16 +268,12 @@ function AddActivityModal({
               />
             </div>
           )}
-
-          {/* --- ส่วนแสดง Error --- */}
           {error && (
             <div style={styles.errorBox}>
               <AlertTriangle size={18} />
               <span>{error}</span>
             </div>
           )}
-
-          {/* --- ปุ่ม --- */}
           <button onClick={handleSubmit} style={styles.saveButton}>
             <Plus size={18} /> บันทึก
           </button>
@@ -324,7 +283,7 @@ function AddActivityModal({
   );
 }
 
-// === CSS Styles ===
+// === CSS Styles (อัปเดต) ===
 const styles = {
   page: { padding: "10px" },
   header: {
@@ -335,10 +294,16 @@ const styles = {
     marginBottom: "15px",
     borderBottom: "1px solid #444",
   },
+  // === 4. START CHANGE: เปลี่ยน Style ของปุ่มกลับ ===
   backButton: {
+    background: "none", // (เพิ่ม)
+    border: "none", // (เพิ่ม)
     color: "white",
     padding: "8px",
+    cursor: "pointer", // (เพิ่ม)
+    display: "flex", // (เพิ่ม)
   },
+  // === END CHANGE ===
   title: {
     margin: 0,
     fontSize: "1.2rem",
@@ -377,7 +342,7 @@ const styles = {
     backgroundColor: "#333",
     padding: "5px 8px",
     borderRadius: "5px",
-    width: "50px", // กว้างคงที่
+    width: "50px",
   },
   time: {
     fontSize: "0.9rem",
@@ -413,7 +378,7 @@ const styles = {
     textAlign: "center",
     padding: "20px",
   },
-  // Modal Styles
+  // (Modal Styles ... เหมือนเดิม)
   modalOverlay: {
     position: "fixed",
     top: 0,

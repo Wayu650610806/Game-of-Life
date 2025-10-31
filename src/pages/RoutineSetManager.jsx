@@ -3,14 +3,28 @@ import React, { useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { db } from "../db";
 import { Link, useNavigate } from "react-router-dom";
-import { Plus, Trash2, Edit, ArrowLeft } from "lucide-react"; // <-- 1. IMPORT ArrowLeft
+// === 1. START CHANGE: Import ไอคอนใหม่ ===
+import {
+  Plus,
+  Trash2,
+  Edit,
+  ArrowLeft,
+  Copy,
+  FileSignature,
+  X,
+} from "lucide-react";
+// === END CHANGE ===
 
 function RoutineSetManager() {
   const [newSetName, setNewSetName] = useState("");
   const navigate = useNavigate();
+
+  // === 2. (ใหม่) State สำหรับ Modal แก้ไขชื่อ ===
+  const [editingSet, setEditingSet] = useState(null); // (null หรือ set object)
+
   const routineSets = useLiveQuery(() => db.routineSets.toArray());
 
-  // ... (handler functions 'handleCreateSet' และ 'handleDeleteSet' เหมือนเดิม)
+  // (ฟังก์ชัน 'handleCreateSet' เหมือนเดิม)
   const handleCreateSet = async () => {
     if (!newSetName.trim()) return;
     try {
@@ -24,6 +38,8 @@ function RoutineSetManager() {
       console.error("Failed to create new set:", error);
     }
   };
+
+  // (ฟังก์ชัน 'handleDeleteSet' เหมือนเดิม)
   const handleDeleteSet = async (id, name) => {
     if (
       window.confirm(
@@ -45,19 +61,39 @@ function RoutineSetManager() {
     }
   };
 
+  // === 3. (ใหม่) ฟังก์ชัน Copy Set ===
+  const handleCopySet = async (id) => {
+    try {
+      const originalSet = await db.routineSets.get(id);
+      if (!originalSet) return;
+
+      const newSet = {
+        ...originalSet,
+        name: `${originalSet.name} (Copy)`,
+      };
+      delete newSet.id; // (สำคัญ) ลบ ID เก่าออก
+
+      await db.routineSets.add(newSet);
+    } catch (error) {
+      console.error("Failed to copy set:", error);
+    }
+  };
+
   return (
     <div style={styles.page}>
-      {/* === 2. START CHANGE: เพิ่ม Header ใหม่ที่มีปุ่มกลับ === */}
+      {/* 4. (อัปเดต) Header ให้มีปุ่มกลับ */}
       <div style={styles.header}>
-        <button onClick={() => navigate(-1)} style={styles.backButton}>
+        <button
+          onClick={() => navigate("/edit-routine")}
+          style={styles.backButton}
+        >
           <ArrowLeft size={20} />
         </button>
         <h2 style={styles.title}>จัดการ Routine Sets</h2>
-        <div style={{ width: "40px" }} /> {/* Placeholder to balance flexbox */}
+        <div style={{ width: "40px" }} /> {/* Placeholder */}
       </div>
-      {/* === END CHANGE === */}
 
-      {/* --- ส่วนที่เหลือของ JSX (Input Form, List) เหมือนเดิม --- */}
+      {/* --- ส่วน Input (เหมือนเดิม) --- */}
       <div style={styles.inputForm}>
         <input
           type="text"
@@ -71,23 +107,45 @@ function RoutineSetManager() {
           <Plus size={20} />
         </button>
       </div>
+
+      {/* --- 5. (อัปเดต) รายการ Set --- */}
       <ul style={styles.list}>
         {routineSets && routineSets.length > 0 ? (
           routineSets.map((set) => (
             <li key={set.id} style={styles.listItem}>
               <span style={styles.setName}>{set.name}</span>
+
               <div style={styles.buttonGroup}>
+                {/* ปุ่ม Copy */}
+                <button
+                  onClick={() => handleCopySet(set.id)}
+                  style={styles.iconButton}
+                  title="คัดลอก"
+                >
+                  <Copy size={16} />
+                </button>
+                {/* ปุ่ม Rename */}
+                <button
+                  onClick={() => setEditingSet(set)}
+                  style={styles.iconButton}
+                  title="แก้ไขชื่อ"
+                >
+                  <FileSignature size={16} />
+                </button>
+                {/* ปุ่ม Delete */}
                 <button
                   onClick={() => handleDeleteSet(set.id, set.name)}
                   style={styles.deleteButton}
+                  title="ลบ"
                 >
-                  <Trash2 size={18} />
+                  <Trash2 size={16} />
                 </button>
+                {/* ปุ่ม Edit Activities */}
                 <Link
                   to={`/routine-set-editor/${set.id}`}
                   style={styles.editButton}
                 >
-                  <Edit size={18} /> <span>แก้ไข</span>
+                  <Edit size={16} /> <span>แก้ไข</span>
                 </Link>
               </div>
             </li>
@@ -100,14 +158,66 @@ function RoutineSetManager() {
           </p>
         )}
       </ul>
+
+      {/* === 6. (ใหม่) Modal สำหรับแก้ไขชื่อ === */}
+      {editingSet && (
+        <EditNameModal set={editingSet} onClose={() => setEditingSet(null)} />
+      )}
     </div>
   );
 }
 
-// === 3. CSS Styles Object (เพิ่ม/แก้ไข) ===
+// =======================================================
+// === 7. (ใหม่) Component ย่อย: Modal แก้ไขชื่อ ===
+// =======================================================
+function EditNameModal({ set, onClose }) {
+  const [newName, setNewName] = useState(set.name);
+
+  const handleSave = async () => {
+    if (!newName.trim()) {
+      alert("ชื่อห้ามว่าง");
+      return;
+    }
+    try {
+      await db.routineSets.update(set.id, { name: newName.trim() });
+      onClose();
+    } catch (error) {
+      console.error("Failed to update name:", error);
+    }
+  };
+
+  return (
+    <div style={styles.modalOverlay}>
+      <div style={styles.modalContent}>
+        <div style={styles.modalHeader}>
+          <h3>แก้ไขชื่อ Routine Set</h3>
+          <button onClick={onClose} style={styles.closeButton}>
+            <X size={24} />
+          </button>
+        </div>
+        <div style={styles.modalForm}>
+          <div style={styles.inputGroup}>
+            <label>ชื่อ Set</label>
+            <input
+              type="text"
+              value={newName}
+              onChange={(e) => setNewName(e.target.value)}
+              style={styles.input}
+            />
+          </div>
+          <button onClick={handleSave} style={styles.saveButton}>
+            <FileSignature size={18} /> บันทึก
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// === 8. (อัปเดต) CSS Styles ===
 const styles = {
   page: { padding: "10px" },
-  // CSS ใหม่สำหรับ Header
+  // (ใหม่) Header
   header: {
     display: "flex",
     justifyContent: "space-between",
@@ -122,6 +232,7 @@ const styles = {
     color: "white",
     padding: "8px",
     cursor: "pointer",
+    display: "flex",
   },
   title: {
     margin: 0,
@@ -174,18 +285,31 @@ const styles = {
   setName: {
     fontWeight: "bold",
     fontSize: "1.1rem",
+    wordBreak: "break-word", // (ใหม่) กันชื่อยาว
+    marginRight: "10px", // (ใหม่)
   },
   buttonGroup: {
     display: "flex",
     alignItems: "center",
-    gap: "10px",
+    gap: "8px",
+    flexShrink: 0, // (ใหม่)
+  },
+  // (ใหม่) ปุ่มไอคอน (Copy, Rename)
+  iconButton: {
+    background: "none",
+    border: "1px solid #888",
+    color: "#888",
+    cursor: "pointer",
+    padding: "6px",
+    borderRadius: "5px",
+    display: "flex",
   },
   deleteButton: {
     background: "none",
     border: "1px solid #ffaaaa",
     color: "#ffaaaa",
     cursor: "pointer",
-    padding: "8px",
+    padding: "6px",
     borderRadius: "5px",
     display: "flex",
   },
@@ -204,6 +328,68 @@ const styles = {
     color: "#888",
     textAlign: "center",
     padding: "10px",
+  },
+
+  // (ใหม่) CSS สำหรับ Modal
+  modalOverlay: {
+    position: "fixed",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: "rgba(0, 0, 0, 0.7)",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    zIndex: 200,
+    padding: "15px",
+  },
+  modalContent: {
+    backgroundColor: "#2a2a2a",
+    borderRadius: "8px",
+    padding: "20px",
+    width: "100%",
+    maxWidth: "400px",
+    boxShadow: "0 4px 15px rgba(0, 0, 0, 0.5)",
+  },
+  modalHeader: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    borderBottom: "1px solid #444",
+    paddingBottom: "10px",
+    marginBottom: "15px",
+  },
+  closeButton: {
+    background: "none",
+    border: "none",
+    color: "white",
+    padding: 0,
+    cursor: "pointer",
+    display: "flex",
+  },
+  modalForm: {
+    display: "flex",
+    flexDirection: "column",
+    gap: "15px",
+  },
+  inputGroup: {
+    display: "flex",
+    flexDirection: "column",
+    gap: "5px",
+  },
+  saveButton: {
+    background: "#646cff",
+    color: "white",
+    border: "none",
+    padding: "10px 15px",
+    borderRadius: "5px",
+    cursor: "pointer",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: "5px",
+    fontSize: "1rem",
   },
 };
 
