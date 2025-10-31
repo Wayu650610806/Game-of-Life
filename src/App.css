@@ -1,0 +1,187 @@
+/* src/App.css */
+:root {
+  --primary-color: #007bff; /* สีน้ำเงินหลัก */
+  --secondary-color: #28a745; /* สีเขียวสำหรับสำเร็จ */
+  --bg-color: #f4f7f6; /* สีพื้นหลังอ่อน */
+  --card-bg: #ffffff; /* สีพื้นหลังการ์ด */
+  --text-color: #333;
+  --danger-color: #dc3545; /* สีแดงสำหรับลบ/ลงโทษ */
+}
+
+body {
+  font-family: sans-serif;
+  background-color: var(--bg-color);
+  margin: 0;
+  padding: 0;
+  color: var(--text-color);
+}
+
+.setup-container,
+.dashboard-container {
+  max-width: 600px;
+  margin: 40px auto;
+  padding: 20px;
+  background-color: var(--card-bg);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  border-radius: 12px;
+}
+
+h1,
+h2 {
+  color: var(--primary-color);
+  border-bottom: 2px solid #eee;
+  padding-bottom: 10px;
+  margin-top: 0;
+}
+
+/* --- Form Styles (Setup & Add Routine/Penalty) --- */
+form {
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+  padding: 15px 0;
+}
+
+input[type="text"],
+input[type="date"],
+input[type="time"] {
+  padding: 12px;
+  border: 1px solid #ccc;
+  border-radius: 8px;
+  font-size: 16px;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+button {
+  padding: 12px 20px;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 16px;
+  transition: background-color 0.3s;
+}
+
+button[type="submit"] {
+  background-color: var(--primary-color);
+  color: white;
+}
+
+button[type="submit"]:hover {
+  background-color: #0056b3;
+}
+
+/* --- Header & Stats --- */
+.user-stats-header {
+  padding: 10px 0 20px 0;
+  margin-bottom: 20px;
+  border-bottom: 1px solid #eee;
+}
+
+.profile-info {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 15px;
+}
+
+.level-badge,
+.coin-display {
+  background-color: var(--primary-color);
+  color: white;
+  padding: 6px 12px;
+  border-radius: 20px;
+  font-weight: bold;
+  font-size: 14px;
+}
+
+.coin-display {
+  background-color: #ffc107;
+  color: var(--text-color);
+  margin-left: 10px;
+}
+
+.stats-row {
+  display: flex;
+  align-items: center;
+}
+
+/* --- Current Date/Time --- */
+.datetime-section {
+  text-align: center;
+  margin-bottom: 30px;
+  padding: 15px;
+  background-color: #e9ecef;
+  border-radius: 8px;
+}
+
+.current-time {
+  font-size: 2.5em;
+  font-weight: 300;
+  margin: 0;
+  color: var(--primary-color);
+}
+
+.current-date {
+  font-size: 1.2em;
+  color: #6c757d;
+  margin-top: 5px;
+}
+
+/* --- Routine Section --- */
+.routine-section,
+.penalty-list-section {
+  margin-bottom: 30px;
+  padding: 15px;
+  background-color: var(--card-bg);
+  border: 1px solid #ddd;
+  border-radius: 8px;
+}
+
+.current-task {
+  padding: 15px;
+  border: 1px solid var(--secondary-color);
+  background-color: #d4edda;
+  border-radius: 8px;
+}
+
+.complete-button {
+  background-color: var(--secondary-color);
+  color: white;
+  margin-top: 10px;
+  width: 100%;
+}
+
+.no-routine {
+  text-align: center;
+  padding: 20px;
+  border: 1px dashed #ccc;
+  border-radius: 8px;
+}
+
+.add-routine-button {
+  background-color: #6c757d;
+  color: white;
+}
+
+/* --- Penalty List --- */
+.penalty-items-list {
+  list-style: none;
+  padding: 0;
+  margin-top: 15px;
+}
+
+.penalty-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px;
+  border-bottom: 1px solid #eee;
+}
+
+.delete-button {
+  background-color: var(--danger-color);
+  color: white;
+  padding: 5px 10px;
+  font-size: 14px;
+}
