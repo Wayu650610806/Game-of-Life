@@ -1,5 +1,5 @@
 // src/pages/Shop.jsx
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { db } from "../db";
 import {
@@ -11,16 +11,16 @@ import {
   ShieldAlert,
   Edit,
   Trash2,
+  HelpCircle,
 } from "lucide-react";
 
-// === 1. START CHANGE: อัปเดตสูตรคำนวณราคา ===
+// === 1. START CHANGE: (คืนชีพ) สูตรคำนวณราคาเดิม ===
+// (สูตรนี้จะคำนวณ "Game Coins" ไม่เกี่ยวกับงบประมาณ)
 const calculatePrice = (rank) => {
   // โดย x = random(3100-5100)
   const x = Math.floor(Math.random() * (5100 - 3100 + 1)) + 3100;
 
-  switch (
-    String(rank) // ใช้ String() เพื่อความปลอดภัย
-  ) {
+  switch (String(rank)) {
     case "1":
       return 7 * x; // 7 วัน
     case "2":
@@ -32,7 +32,7 @@ const calculatePrice = (rank) => {
     case "5":
       return 730 * x; // 2 ปี (730 วัน)
     default:
-      return 9999999; // (เลขสำรอง)
+      return 9999999;
   }
 };
 // === END CHANGE ===
@@ -71,7 +71,7 @@ const getRankColor = (rank) => {
   }
 };
 
-// === Main Component (เหมือนเดิม) ===
+// === Main Component ===
 function Shop() {
   const [currentTab, setCurrentTab] = useState("items");
   const [confirmBuy, setConfirmBuy] = useState(null);
@@ -81,6 +81,14 @@ function Shop() {
   const user = useLiveQuery(() => db.userProfile.toCollection().first());
   const shopItems = useLiveQuery(() => db.shopItems.toArray(), []);
 
+  // === 2. (ใหม่) ดึงข้อมูลงบประมาณ "รางวัล" ===
+  // (ข้อมูลนี้จะถูกส่งไปให้ Modal เพื่อ "แนะนำ" เท่านั้น)
+  const rewardsBudget = useLiveQuery(
+    () => db.budgets.where("name").equals("rewards").first(),
+    []
+  );
+
+  // (ฟังก์ชัน 'handleBuyItem', 'handleDeleteItem' ... เหมือนเดิม)
   const handleBuyItem = async (item) => {
     if (!user || user.money < item.price) {
       alert("มีเงินไม่พอ!");
@@ -98,7 +106,6 @@ function Shop() {
       alert("เกิดข้อผิดพลาดในการซื้อ");
     }
   };
-
   const handleDeleteItem = async (id, name) => {
     if (
       window.confirm(`คุณแน่ใจหรือไม่ว่าต้องการลบ "${name}" ออกจากร้านค้า?`)
@@ -111,22 +118,20 @@ function Shop() {
       }
     }
   };
-
   const handleOpenEditModal = (item) => {
     setItemToEdit(item);
     setIsAddModalOpen(true);
   };
-
   const handleOpenAddModal = () => {
     setItemToEdit(null);
     setIsAddModalOpen(true);
   };
-
   const handleCloseModal = () => {
     setIsAddModalOpen(false);
     setItemToEdit(null);
   };
 
+  // (JSX หน้าหลัก ... เหมือนเดิม)
   return (
     <div style={styles.page}>
       <div style={styles.header}>
@@ -225,8 +230,13 @@ function Shop() {
         )}
       </div>
 
+      {/* --- (อัปเดต) Modals --- */}
       {isAddModalOpen && (
-        <AddShopItemModal onClose={handleCloseModal} itemToEdit={itemToEdit} />
+        <AddShopItemModal
+          onClose={handleCloseModal}
+          itemToEdit={itemToEdit}
+          rewardsBudget={rewardsBudget} // (ส่งงบประมาณไป)
+        />
       )}
 
       {confirmBuy && (
@@ -244,7 +254,7 @@ function Shop() {
 // =======================================================
 // === (อัปเดต) Component ย่อย: Modal เพิ่ม/แก้ไข ไอเทม ===
 // =======================================================
-function AddShopItemModal({ onClose, itemToEdit }) {
+function AddShopItemModal({ onClose, itemToEdit, rewardsBudget }) {
   const isEditMode = !!itemToEdit;
   const [name, setName] = useState(itemToEdit?.name || "");
   const [detail, setDetail] = useState(itemToEdit?.detail || "");
@@ -252,21 +262,27 @@ function AddShopItemModal({ onClose, itemToEdit }) {
   const [imageUrl, setImageUrl] = useState(itemToEdit?.imageUrl || "");
   const [error, setError] = useState(null);
 
-  // === (ใหม่) State สำหรับราคาที่คำนวณแล้ว ===
-  const [calculatedPrice, setCalculatedPrice] = useState(null);
+  // === 3. (ใหม่) คำนวณ "คำแนะนำ" ===
+  const recommendation = useMemo(() => {
+    // (ใช้ 'totalAmount' (เพดานงบ) ไม่ใช่ 'currentAmount' (ที่ใช้ไป))
+    const budgetTotal = rewardsBudget?.totalAmount || 0;
 
-  // === (ใหม่) Effect สำหรับคำนวณราคาใหม่ เมื่อ Rank เปลี่ยน ===
-  useEffect(() => {
-    // โหมดแก้ไข: ใช้ราคาเดิม
-    if (isEditMode) {
-      setCalculatedPrice(itemToEdit.price);
-    }
-    // โหมดเพิ่ม: คำนวณใหม่
-    else {
-      setCalculatedPrice(calculatePrice(rank));
-    }
-    // (เราจะไม่คำนวณใหม่ทุกครั้งที่ rank เปลี่ยนในโหมด Edit)
-  }, [rank, isEditMode, itemToEdit]);
+    // (ฟังก์ชันนี้จะคืนค่าเป็นข้อความ "0 - 500", "500 - 1,000" เป็นต้น)
+    return {
+      1: `0 - ${Math.floor(budgetTotal * 0.5).toLocaleString()}`,
+      2: `${Math.floor(budgetTotal * 0.5).toLocaleString()} - ${Math.floor(
+        budgetTotal * 1.0
+      ).toLocaleString()}`,
+      3: `${Math.floor(budgetTotal * 1.0).toLocaleString()} - ${Math.floor(
+        budgetTotal * 6.0
+      ).toLocaleString()}`,
+      4: `${Math.floor(budgetTotal * 6.0).toLocaleString()} - ${Math.floor(
+        budgetTotal * 12.0
+      ).toLocaleString()}`,
+      5: `> ${Math.floor(budgetTotal * 12.0).toLocaleString()}`,
+    };
+  }, [rewardsBudget]);
+  // === END CHANGE ===
 
   const handleImageUpload = (e) => {
     const file = e.target.files[0];
@@ -283,21 +299,17 @@ function AddShopItemModal({ onClose, itemToEdit }) {
       return;
     }
 
-    // === 2. START CHANGE: ใช้ราคาที่คำนวณไว้ ===
-    // ถ้าเป็นโหมด Add, ให้คำนวณราคา "สด" ตอนกดบันทึก
-    // ถ้าเป็นโหมด Edit, ให้ใช้ราคาเดิม (เว้นแต่ Rank จะเปลี่ยน)
+    // === 4. (อัปเดต) Logic การคำนวณราคา ===
+    // (กลับไปใช้สูตรเดิมของคุณ)
     let finalPrice;
     if (isEditMode) {
-      // ถ้า Rank เปลี่ยน, คำนวณใหม่
       if (rank !== itemToEdit.rank.toString()) {
-        finalPrice = calculatePrice(rank);
+        finalPrice = calculatePrice(rank); // (ใช้สูตรสุ่ม)
       } else {
-        // ถ้า Rank ไม่เปลี่ยน, ใช้ราคาเดิม
-        finalPrice = itemToEdit.price;
+        finalPrice = itemToEdit.price; // (ใช้ราคาเดิม)
       }
     } else {
-      // โหมด Add, คำนวณใหม่
-      finalPrice = calculatePrice(rank);
+      finalPrice = calculatePrice(rank); // (ใช้สูตรสุ่ม)
     }
     // === END CHANGE ===
 
@@ -305,7 +317,7 @@ function AddShopItemModal({ onClose, itemToEdit }) {
       name,
       detail,
       rank: parseInt(rank, 10),
-      price: finalPrice, // <-- ใช้ราคาที่คำนวณ
+      price: finalPrice, // (นี่คือราคา Game Coins)
       imageUrl,
     };
 
@@ -332,6 +344,22 @@ function AddShopItemModal({ onClose, itemToEdit }) {
           </button>
         </div>
         <div style={styles.modalForm}>
+          {/* === 5. (ใหม่) กล่องคำแนะนำ === */}
+          <div style={styles.infoBox}>
+            <HelpCircle size={18} color="#64cfff" />
+            <div style={styles.infoText}>
+              <span>
+                คำแนะนำ (จากงบ 'รางวัล' :
+                {" " + rewardsBudget?.totalAmount.toLocaleString() || 0})
+              </span>
+              <span style={styles.recommendationText}>
+                R1: {recommendation["1"]} | R2: {recommendation["2"]} | R3:
+                {recommendation["3"]} | R4: {recommendation["4"]} | R5:
+                {recommendation["5"]}
+              </span>
+            </div>
+          </div>
+
           <div style={styles.inputGroup}>
             <label>ชื่อไอเทม</label>
             <input
@@ -351,36 +379,21 @@ function AddShopItemModal({ onClose, itemToEdit }) {
             ></textarea>
           </div>
 
-          {/* === 3. START CHANGE: อัปเดต Dropdown ให้แสดงราคา === */}
+          {/* === 6. (อัปเดต) Dropdown (ลบราคาออก) === */}
           <div style={styles.inputGroup}>
-            <label>ระดับ (Rank)</label>
+            <label>ระดับ (Rank) - (ราคา Coins จะถูกสุ่ม)</label>
             <select
               value={rank}
               onChange={(e) => setRank(e.target.value)}
               style={styles.select}
             >
-              <option value="1">1 - Common (7 วัน)</option>
-              <option value="2">2 - Uncommon (30 วัน)</option>
-              <option value="3">3 - Rare (6 เดือน)</option>
-              <option value="4">4 - Epic (1 ปี)</option>
-              <option value="5">5 - Legendary (2 ปี)</option>
+              <option value="1">1 - Common</option>
+              <option value="2">2 - Uncommon</option>
+              <option value="3">3 - Rare</option>
+              <option value="4">4 - Epic</option>
+              <option value="5">5 - Legendary</option>
             </select>
           </div>
-
-          {/* (ใหม่) แสดงราคาที่คำนวณ */}
-          <div style={styles.rewardInfoBox}>
-            <span>ราคา (โดยประมาณ):</span>
-            <span style={{ color: "#FFD700" }}>
-              <strong>
-                {/* ถ้าโหมด Add ให้คำนวณใหม่, ถ้า Edit ให้โชว์ของเดิม */}
-                {isEditMode && rank === itemToEdit.rank.toString()
-                  ? itemToEdit.price.toLocaleString()
-                  : `~ ${(calculatePrice(rank) / 1000).toFixed(0)}k`}{" "}
-                Coins
-              </strong>
-            </span>
-          </div>
-          {/* === END CHANGE === */}
 
           <div style={styles.inputGroup}>
             <label>อัปโหลดรูปภาพ</label>
@@ -410,7 +423,7 @@ function AddShopItemModal({ onClose, itemToEdit }) {
   );
 }
 
-// (Component 'ConfirmBuyModal' เหมือนเดิม)
+// (Component 'ConfirmBuyModal' ... เหมือนเดิม)
 function ConfirmBuyModal({ item, user, onClose, onConfirm }) {
   const hasEnoughMoney = user && user.money >= item.price;
   return (
@@ -455,8 +468,9 @@ function ConfirmBuyModal({ item, user, onClose, onConfirm }) {
   );
 }
 
-// === CSS Styles (เหมือนเดิม) ===
+// === CSS Styles (อัปเดต) ===
 const styles = {
+  // (CSS ส่วนใหญ่เหมือนเดิม)
   page: { padding: "10px" },
   header: {
     display: "flex",
@@ -760,6 +774,31 @@ const styles = {
     borderRadius: "5px",
     fontSize: "1.1rem",
     gap: "10px",
+  },
+
+  // === (ใหม่) CSS สำหรับ Info Box ===
+  infoBox: {
+    display: "flex",
+    alignItems: "flex-start", // (เปลี่ยนเป็น start)
+    gap: "10px",
+    backgroundColor: "#333",
+    padding: "10px",
+    borderRadius: "5px",
+    borderLeft: "4px solid #64cfff",
+  },
+  infoText: {
+    display: "flex",
+    flexDirection: "column",
+    fontSize: "0.9rem",
+    color: "#aaa",
+  },
+  recommendationText: {
+    // (ใหม่)
+    fontSize: "0.8rem",
+    color: "#ccc",
+    fontStyle: "italic",
+    lineHeight: 1.4, // (ทำให้อ่านง่ายขึ้น)
+    marginTop: "4px",
   },
 };
 

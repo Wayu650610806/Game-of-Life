@@ -3,10 +3,180 @@ import Dexie from "dexie";
 
 export const db = new Dexie("gameOfLifeApp");
 
-// === START CHANGE: อัปเดต Version 7 (The Correct One) ===
+// === START CHANGE: อัปเดต Version 13 ===
 
-// v.7 (Latest)
-// (แก้ไข) ลบ '&' (Unique) ออกจาก 'type' และ 'status'
+// v.13 (Latest)
+// (สำคัญ) เพิ่ม 'activityId', 'activityLevel', 'userLevel' ใน 'mailbox'
+// และ 'taskId', 'taskReward', 'taskPenalty'
+db.version(13).stores({
+  userProfile: "++id, name, birthday, level, money",
+  activities: "++id, name, level",
+  routineSets: "++id, name, items",
+  dailyRoutines: "dayOfWeek, routineSetId",
+  tasks:
+    "++id, type, status, startTime, endTime, name, detail, difficulty, reward, penalty",
+  penalties: "++id, name",
+  dreams: "++id, name, imageUrl, targetDate, status",
+
+  // (อัปเดต)
+  mailbox:
+    "++id, timestamp, &isRead, type, message, activityName, levelDrop, penaltyName, activityStartTime, activityEndTime, activityId, activityLevel, userLevel, taskId, taskReward, taskPenalty",
+
+  shopItems: "++id, name, detail, rank, price, imageUrl",
+  accounts: "++id, name, balance",
+  liabilities: "++id, name, amount, status",
+  receivables: "++id, name, amount, status",
+  budgets: "++id, &name, currentAmount, totalAmount, lastReset, icon",
+  tags: "++id, &name, type",
+  transactions:
+    "++id, timestamp, type, amount, accountId, tagId, classification",
+  settings: "key, value",
+});
+
+// --- ประกาศเวอร์ชันก่อนหน้าทั้งหมด ---
+
+// v.12 (Previous)
+db.version(12).stores({
+  userProfile: "++id, name, birthday, level, money",
+  activities: "++id, name, level",
+  routineSets: "++id, name, items",
+  dailyRoutines: "dayOfWeek, routineSetId",
+  tasks:
+    "++id, type, status, startTime, endTime, name, detail, difficulty, reward, penalty",
+  penalties: "++id, name",
+  dreams: "++id, name, imageUrl, targetDate, status",
+  mailbox:
+    "++id, timestamp, &isRead, type, message, activityName, levelDrop, penaltyName, activityStartTime, activityEndTime",
+  shopItems: "++id, name, detail, rank, price, imageUrl",
+  accounts: "++id, name, balance",
+  liabilities: "++id, name, amount, status",
+  receivables: "++id, name, amount, status",
+  budgets: "++id, &name, currentAmount, totalAmount, lastReset, icon",
+  tags: "++id, &name, type",
+  transactions:
+    "++id, timestamp, type, amount, accountId, tagId, classification",
+  settings: "key, value",
+});
+
+// v.11 (Previous)
+db.version(11).stores({
+  userProfile: "++id, name, birthday, level, money",
+  activities: "++id, name, level",
+  routineSets: "++id, name, items",
+  dailyRoutines: "dayOfWeek, routineSetId",
+  tasks:
+    "++id, type, status, startTime, endTime, name, detail, difficulty, reward, penalty",
+  penalties: "++id, name",
+  dreams: "++id, name, imageUrl, targetDate, status",
+  mailbox:
+    "++id, timestamp, &isRead, type, message, activityName, levelDrop, penaltyName, activityStartTime, activityEndTime",
+  shopItems: "++id, name, detail, rank, price, imageUrl",
+  accounts: "++id, name, balance",
+  liabilities: "++id, name, amount, status",
+  receivables: "++id, name, amount, status",
+  budgets: "++id, &name, currentAmount, totalAmount, lastReset",
+  tags: "++id, name, type",
+  transactions:
+    "++id, timestamp, type, amount, accountId, tagId, classification",
+});
+
+// v.10 (Previous)
+db.version(10)
+  .stores({
+    userProfile: "++id, name, birthday, level, money",
+    activities: "++id, name, level",
+    routineSets: "++id, name, items",
+    dailyRoutines: "dayOfWeek, routineSetId",
+    tasks:
+      "++id, type, status, startTime, endTime, name, detail, difficulty, reward, penalty",
+    penalties: "++id, name",
+    dreams: "++id, name, imageUrl, targetDate, status",
+    mailbox:
+      "++id, timestamp, &isRead, type, message, activityName, levelDrop, penaltyName, activityStartTime, activityEndTime",
+    shopItems: "++id, name, detail, rank, price, imageUrl",
+    accounts: "++id, name, balance",
+    liabilities: "++id, name, amount, status",
+    receivables: "++id, name, amount, status",
+    budgets: "++id, &name, currentAmount, totalAmount",
+    tags: "++id, name, type",
+    transactions:
+      "++id, timestamp, type, amount, accountId, tagId, classification",
+  })
+  .upgrade(async (tx) => {
+    const now = new Date();
+    const startOfMonth = new Date(
+      now.getFullYear(),
+      now.getMonth(),
+      1
+    ).toISOString();
+    return tx
+      .table("budgets")
+      .toCollection()
+      .modify({ lastReset: startOfMonth });
+  });
+
+// v.9 (Previous)
+db.version(9)
+  .stores({
+    userProfile: "++id, name, birthday, level, money",
+    activities: "++id, name, level",
+    routineSets: "++id, name, items",
+    dailyRoutines: "dayOfWeek, routineSetId",
+    penalties: "++id, name",
+    dreams: "++id, name, imageUrl, targetDate, status",
+    mailbox:
+      "++id, timestamp, &isRead, type, message, activityName, levelDrop, penaltyName, activityStartTime, activityEndTime",
+    shopItems: "++id, name, detail, rank, price, imageUrl",
+    tasks:
+      "++id, type, status, startTime, endTime, name, detail, difficulty, reward, penalty",
+    accounts: "++id, name, balance",
+    liabilities: "++id, name, amount, status",
+    receivables: "++id, name, amount, status",
+    budgets: "name, currentAmount, totalAmount",
+    tags: "++id, name, type",
+    transactions:
+      "++id, timestamp, type, amount, accountId, tagId, classification",
+  })
+  .upgrade(async (tx) => {
+    const oldTables = tx.tables.map((t) => t.name);
+    if (oldTables.includes("budgets")) {
+      if ((await tx.table("budgets").count()) > 0) {
+        const oldBudgets = await tx.table("budgets").toArray();
+        await tx.table("budgets").clear();
+        await tx.table("budgets").bulkAdd(
+          oldBudgets.map((b) => ({
+            name: b.name,
+            currentAmount: b.currentAmount,
+            totalAmount: b.totalAmount,
+          }))
+        );
+      }
+    }
+  });
+
+// v.8 (Previous Buggy)
+db.version(8).stores({
+  userProfile: "++id, name, birthday, level, money",
+  activities: "++id, name, level",
+  routineSets: "++id, name, items",
+  dailyRoutines: "dayOfWeek, routineSetId",
+  penalties: "++id, name",
+  dreams: "++id, name, imageUrl, targetDate, status",
+  mailbox:
+    "++id, timestamp, &isRead, type, message, activityName, levelDrop, penaltyName, activityStartTime, activityEndTime",
+  shopItems: "++id, name, detail, rank, price, imageUrl",
+  tasks:
+    "++id, &type, &status, startTime, endTime, name, detail, difficulty, reward, penalty",
+  accounts: "++id, name, balance",
+  liabilities: "++id, name, amount, status",
+  receivables: "++id, name, amount, status",
+  budgets: "name, currentAmount, totalAmount",
+  tags: "++id, name, type",
+  transactions:
+    "++id, timestamp, type, amount, accountId, tagId, classification",
+});
+
+// v.7 (Previous)
 db.version(7).stores({
   userProfile: "++id, name, birthday, level, money",
   activities: "++id, name, level",
@@ -17,16 +187,11 @@ db.version(7).stores({
   mailbox:
     "++id, timestamp, &isRead, type, message, activityName, levelDrop, penaltyName, activityStartTime, activityEndTime",
   shopItems: "++id, name, detail, rank, price, imageUrl",
-
-  // (แก้ไข) เอา & ออกจาก type และ status (นี่คือ Bug)
-  // แต่เรายังเก็บ 'startTime' และ 'endTime' ไว้ใน index เพื่อการค้นหา
   tasks:
     "++id, type, status, startTime, endTime, name, detail, difficulty, reward, penalty",
 });
 
-// v.6 (Previous Buggy Version)
-// (สำคัญ) เราต้อง "ประกาศ" v.6 ที่พังๆ ไว้ด้วย
-// เพื่อให้ Dexie รู้ว่าต้อง "อัปเกรด" จาก v.6 (ที่พัง) ไป v.7 (ที่ถูก)
+// v.6 (Previous Buggy)
 db.version(6)
   .stores({
     userProfile: "++id, name, birthday, level, money",
@@ -38,21 +203,15 @@ db.version(6)
     mailbox:
       "++id, timestamp, &isRead, type, message, activityName, levelDrop, penaltyName, activityStartTime, activityEndTime",
     shopItems: "++id, name, detail, rank, price, imageUrl",
-
-    // นี่คือ Schema ที่ "พัง" ที่ผมให้ไป (มี &)
     tasks:
       "++id, &type, &status, startTime, endTime, name, detail, difficulty, reward, penalty",
   })
   .upgrade(async (tx) => {
-    // ผู้ใช้ v.5 -> v.6
     const oldTables = tx.tables.map((t) => t.name);
     if (oldTables.includes("quests")) {
       if ((await tx.table("quests").count()) > 0) {
         const oldQuests = await tx.table("quests").toArray();
-        const newTasks = oldQuests.map((q) => ({
-          ...q,
-          type: "quest",
-        }));
+        const newTasks = oldQuests.map((q) => ({ ...q, type: "quest" }));
         await tx.table("tasks").bulkAdd(newTasks);
       }
     }
@@ -65,7 +224,7 @@ db.version(5).stores({
   routineSets: "++id, name, items",
   dailyRoutines: "dayOfWeek, routineSetId",
   quests:
-    "++id, name, detail, startTime, endTime, difficulty, reward, penalty, status", // <-- ตาราง 'quests' เก่า
+    "++id, name, detail, startTime, endTime, difficulty, reward, penalty, status",
   penalties: "++id, name",
   dreams: "++id, name, imageUrl, targetDate, status",
   mailbox:

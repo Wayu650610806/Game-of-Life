@@ -1,13 +1,1799 @@
 // src/pages/Finance.jsx
-import React from "react";
+import React, { useState, useMemo, useEffect } from "react";
+import { useLiveQuery } from "dexie-react-hooks";
+import { db } from "../db";
+import { Link, useNavigate } from "react-router-dom";
+import {
+  Plus,
+  X,
+  Wallet,
+  Banknote,
+  Landmark,
+  BarChart2,
+  CheckCircle2,
+  Circle,
+  Gift,
+  TrendingUp,
+  BookOpen,
+  Star,
+  PiggyBank,
+  ArrowDown,
+  ArrowUp,
+  Settings,
+  Trash2,
+  Edit,
+  Info,
+  AlertTriangle,
+} from "lucide-react";
 
+// (Helper Functions ... ทั้งหมดเหมือนเดิม)
+const BUDGET_CATEGORIES = [
+  { key: "giving", name: "การให้", icon: <Gift size={20} /> },
+  { key: "investing", name: "การลงทุน", icon: <TrendingUp size={20} /> },
+  { key: "education", name: "การศึกษา", icon: <BookOpen size={20} /> },
+  { key: "rewards", name: "รางวัล", icon: <Star size={20} /> },
+  { key: "saving", name: "การออม", icon: <PiggyBank size={20} /> },
+];
+const getTodayDateString = () => {
+  return new Date().toLocaleDateString("en-CA");
+};
+const getBudgetIcon = (key) => {
+  const cat = BUDGET_CATEGORIES.find((c) => c.key === key);
+  return cat ? cat.icon : <Wallet size={20} />;
+};
+const getBudgetName = (key) => {
+  const cat = BUDGET_CATEGORIES.find((c) => c.key === key);
+  return cat ? cat.name : key;
+};
+
+// === Main Component ===
 function Finance() {
+  const navigate = useNavigate();
+
+  // 1. ดึงข้อมูล (เหมือนเดิม)
+  const accounts = useLiveQuery(() => db.accounts.toArray(), []);
+  const liabilities = useLiveQuery(
+    () => db.liabilities.where("status").equals("outstanding").toArray(),
+    []
+  );
+  const receivables = useLiveQuery(
+    () => db.receivables.where("status").equals("pending").toArray(),
+    []
+  );
+  const budgets = useLiveQuery(() => db.budgets.toArray(), []);
+  const settings = useLiveQuery(() => db.settings.toArray(), []);
+  const tags = useLiveQuery(() => db.tags.toArray(), []);
+  const todayTransactions = useLiveQuery(() => {
+    const startOfDay = new Date();
+    startOfDay.setHours(0, 0, 0, 0);
+    return db.transactions
+      .where("timestamp")
+      .aboveOrEqual(startOfDay.toISOString())
+      .toArray();
+  }, []);
+
+  // === 2. (ใหม่) ดึงข้อมูล "เดือนที่แล้ว" ===
+  // 2a. คำนวณขอบเขตของเดือนที่แล้ว
+  const { lastMonthFirstDay, lastMonthLastDay } = useMemo(() => {
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = now.getMonth();
+    const first = new Date(year, month - 1, 1); // วันที่ 1 ของเดือนที่แล้ว
+    const last = new Date(year, month, 0); // วันที่ 0 ของเดือนนี้ = วันสุดท้ายของเดือนที่แล้ว
+    last.setHours(23, 59, 59, 999);
+    return {
+      lastMonthFirstDay: first.toISOString(),
+      lastMonthLastDay: last.toISOString(),
+    };
+  }, []); // (คำนวณครั้งเดียว)
+
+  // 2b. (ใหม่) ดึงยอดรวม "รายจ่ายคงที่" ของเดือนที่แล้ว
+  const lastMonthFixedTotal = useLiveQuery(
+    async () => {
+      const txs = await db.transactions
+        .where("timestamp")
+        .between(lastMonthFirstDay, lastMonthLastDay)
+        .filter((t) => t.type === "expense" && t.classification === "fixed")
+        .toArray();
+
+      // (สำคัญ) ถ้าไม่มีข้อมูล ให้คืนค่า null
+      if (!txs || txs.length === 0) return null;
+
+      return txs.reduce((sum, t) => sum + t.amount, 0);
+    },
+    [lastMonthFirstDay, lastMonthLastDay], // (Dependencies)
+    null // (ค่าเริ่มต้น = null (ยังไม่รู้))
+  );
+  // === END (ใหม่) ===
+
+  // 3. States (เหมือนเดิม)
+  const [isAddingAccount, setIsAddingAccount] = useState(false);
+  const [isAddingLiability, setIsAddingLiability] = useState(false);
+  const [isAddingReceivable, setIsAddingReceivable] = useState(false);
+  const [paymentModal, setPaymentModal] = useState(null);
+  const [isManagingBudgets, setIsManagingBudgets] = useState(false);
+  const [budgetLogModal, setBudgetLogModal] = useState(null);
+  const [budgetAddModal, setBudgetAddModal] = useState(null);
+  const [isTxModalOpen, setIsTxModalOpen] = useState(null);
+  const [isFixedExpenseModalOpen, setIsFixedExpenseModalOpen] = useState(false);
+
+  // 4. useEffect (Budgets Initialization - เหมือนเดิม)
+  useEffect(() => {
+    const initializeBudgets = async () => {
+      if (budgets && budgets.length === 0) {
+        const now = new Date();
+        const startOfMonth = new Date(
+          now.getFullYear(),
+          now.getMonth(),
+          1
+        ).toISOString();
+        const defaultBudgets = BUDGET_CATEGORIES.map((cat) => ({
+          name: cat.key,
+          currentAmount: 0,
+          totalAmount: 0,
+          lastReset: startOfMonth,
+          icon: cat.key,
+        }));
+        await db.budgets.bulkAdd(defaultBudgets);
+      }
+    };
+    initializeBudgets();
+  }, [budgets]);
+
+  // 5. useEffect (Budgets Rollover - เหมือนเดิม)
+  useEffect(() => {
+    const checkAndRolloverBudgets = async () => {
+      if (!budgets || budgets.length === 0) return;
+      const now = new Date();
+      const currentMonthYear = `${now.getFullYear()}-${now.getMonth()}`;
+      const firstBudget = budgets[0];
+      if (!firstBudget.lastReset) return;
+      const lastResetDate = new Date(firstBudget.lastReset);
+      const lastResetMonthYear = `${lastResetDate.getFullYear()}-${lastResetDate.getMonth()}`;
+      if (currentMonthYear === lastResetMonthYear) return;
+
+      console.log("Rollover budgets for new month:", currentMonthYear);
+      const newStartOfMonth = new Date(
+        now.getFullYear(),
+        now.getMonth(),
+        1
+      ).toISOString();
+      const updates = [];
+      for (const budget of budgets) {
+        const remaining = budget.totalAmount - budget.currentAmount;
+        updates.push({
+          key: budget.id,
+          changes: {
+            currentAmount: 0,
+            totalAmount: Math.max(0, remaining),
+            lastReset: newStartOfMonth,
+          },
+        });
+      }
+      await db.budgets.bulkUpdate(updates);
+    };
+    checkAndRolloverBudgets();
+  }, [budgets]);
+
+  // 6. useEffect (Settings Initialization - เหมือนเดิม)
+  useEffect(() => {
+    const initializeSettings = async () => {
+      if (!settings) return;
+      const today = getTodayDateString();
+      const mode = settings.find((s) => s.key === "fixedExpenseMode");
+      if (!mode) {
+        await db.settings.put({ key: "fixedExpenseMode", value: "manual" });
+      }
+      const manualValue = settings.find((s) => s.key === "manualFixedExpense");
+      if (!manualValue) {
+        await db.settings.put({ key: "manualFixedExpense", value: 10000 });
+      }
+      const lastReset = settings.find(
+        (s) => s.key === "dailySpendableLastReset"
+      );
+      if (!lastReset || lastReset.value !== today) {
+        console.log("Resetting Daily Spendable for:", today);
+        await db.settings.put({ key: "dailySpendableUsed", value: 0 });
+        await db.settings.put({ key: "dailySpendableLastReset", value: today });
+      }
+    };
+    initializeSettings();
+  }, [settings]);
+
+  // 7. คำนวณยอดรวม (เหมือนเดิม)
+  const totalAssets = useMemo(
+    () => (accounts ? accounts.reduce((sum, acc) => sum + acc.balance, 0) : 0),
+    [accounts]
+  );
+  const totalLiabilities = useMemo(
+    () =>
+      liabilities ? liabilities.reduce((sum, item) => sum + item.amount, 0) : 0,
+    [liabilities]
+  );
+  const totalReceivables = useMemo(
+    () =>
+      receivables ? receivables.reduce((sum, item) => sum + item.amount, 0) : 0,
+    [receivables]
+  );
+  const totalRemainingBudgets = useMemo(() => {
+    if (!budgets) return 0;
+    return budgets.reduce(
+      (sum, b) => sum + (b.totalAmount - b.currentAmount),
+      0
+    );
+  }, [budgets]);
+
+  // === 8. START CHANGE: (อัปเดต) คำนวณ Fixed Expense ===
+  const fixedExpense = useMemo(() => {
+    if (!settings) return 0;
+    const mode =
+      settings.find((s) => s.key === "fixedExpenseMode")?.value || "manual";
+
+    // (ใหม่) โหมดอัตโนมัติ
+    if (mode === "auto") {
+      // ถ้า lastMonthFixedTotal ยังไม่มา (null) หรือมาแล้วแต่เป็น 0 ให้ใช้ 0
+      return lastMonthFixedTotal || 0;
+    }
+
+    // (เดิม) โหมด Manual
+    return settings.find((s) => s.key === "manualFixedExpense")?.value || 0;
+  }, [settings, lastMonthFixedTotal]); // (ใหม่) เพิ่ม dependency
+  // === END CHANGE ===
+
+  // 9. คำนวณ Daily Spendable (เหมือนเดิม)
+  const dailySpendable = useMemo(() => {
+    if (!settings || !accounts || !budgets || !todayTransactions)
+      return { limit: 0, used: 0, remainingDays: 1 };
+
+    const dailyUsed = todayTransactions
+      .filter((t) => t.type === "expense" && t.classification === "variable")
+      .reduce((sum, t) => sum + t.amount, 0);
+
+    const currentFixedExpense = fixedExpense; // (ใช้ค่าที่คำนวณจากข้อ 8)
+
+    const now = new Date();
+    const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+    const remainingDays = Math.max(1, endOfMonth.getDate() - now.getDate() + 1);
+
+    const availableToSpend =
+      totalAssets - totalRemainingBudgets - currentFixedExpense;
+    const dailyLimit = Math.max(0, availableToSpend / remainingDays);
+
+    return {
+      limit: Math.floor(dailyLimit),
+      used: dailyUsed,
+      remainingDays: remainingDays,
+    };
+  }, [
+    totalAssets,
+    totalRemainingBudgets,
+    settings,
+    todayTransactions,
+    accounts,
+    budgets,
+    fixedExpense,
+  ]);
+
+  // (Handler สำหรับลบ Account - เหมือนเดิม)
+  const handleDeleteAccount = async (id, name) => {
+    if (window.confirm(`คุณแน่ใจหรือไม่ว่าต้องการลบ "${name}"?`)) {
+      await db.accounts.delete(id);
+    }
+  };
+
+  // ถ้ายังโหลดไม่เสร็จ
+  if (
+    !accounts ||
+    !liabilities ||
+    !receivables ||
+    !budgets ||
+    !settings ||
+    !tags ||
+    lastMonthFixedTotal === undefined
+  ) {
+    // (เพิ่ม) รอ 'lastMonthFixedTotal' โหลด (จาก null เป็น 0 หรือ number)
+    return <div>กำลังโหลดข้อมูลการเงิน...</div>;
+  }
+
+  // (หน้าจอ First Time Setup - เหมือนเดิม)
+  if (accounts.length === 0 && !isAddingAccount) {
+    return (
+      <div style={styles.firstTimeSetup}>
+        <h3>ตั้งค่าบัญชีการเงิน</h3>
+        <p>คุณยังไม่มีบัญชี (เช่น เงินสด, ธนาคาร) กรุณาเพิ่มบัญชีแรกของคุณ</p>
+        <button
+          onClick={() => setIsAddingAccount(true)}
+          style={styles.saveButton}
+        >
+          <Plus size={18} />
+          เพิ่มบัญชี
+        </button>
+        {isAddingAccount && (
+          <AddAccountModal onClose={() => setIsAddingAccount(false)} />
+        )}
+      </div>
+    );
+  }
+
+  // (หน้าหลัก JSX - เหมือนเดิม)
   return (
-    <div>
-      <h2>หน้าการเงิน</h2>
-      <p>ที่นี่คือหน้าสำหรับวางแผนการเงินครับ</p>
+    <div style={styles.page}>
+      <div style={styles.scrollArea}>
+        {/* --- 1. สรุปสินทรัพย์ (Accounts) --- */}
+        <div style={styles.section}>
+          <div style={styles.sectionHeader}>
+            <h3 style={styles.sectionTitle}>สินทรัพย์ (Accounts)</h3>
+            <button
+              onClick={() => setIsAddingAccount(true)}
+              style={styles.iconButton}
+            >
+              <Plus size={18} />
+            </button>
+          </div>
+          {accounts.map((acc) => (
+            <div key={acc.id} style={styles.accountItem}>
+              <div style={styles.accountInfo}>
+                {acc.name.includes("เงินสด") ? (
+                  <Wallet size={20} />
+                ) : (
+                  <Landmark size={20} />
+                )}
+                <span>{acc.name}</span>
+              </div>
+              <div style={styles.accountBalance}>
+                <span>{acc.balance.toLocaleString()}</span>
+                <button
+                  onClick={() => handleDeleteAccount(acc.id, acc.name)}
+                  style={styles.deleteButton}
+                >
+                  <X size={16} />
+                </button>
+              </div>
+            </div>
+          ))}
+          <div style={styles.totalRow}>
+            <strong>ยอดรวมสินทรัพย์:</strong>
+            <strong>{totalAssets.toLocaleString()}</strong>
+          </div>
+
+          {/* Daily Spendable */}
+          <div style={styles.dailySpendBox}>
+            <div style={styles.dailySpendHeader}>
+              <span>ค่าใช้จ่ายต่อวัน (Variable)</span>
+              <button
+                onClick={() => setIsFixedExpenseModalOpen(true)}
+                style={styles.infoButton}
+              >
+                <Info size={16} />
+              </button>
+            </div>
+            <div style={styles.hpBarOuter}>
+              <div
+                style={{
+                  ...styles.hpBarInner,
+                  width: `${
+                    (dailySpendable.used / dailySpendable.limit) * 100
+                  }%`,
+                  backgroundColor: "#ffaaaa",
+                }}
+              ></div>
+            </div>
+            <span style={styles.hpText}>
+              {dailySpendable.used.toLocaleString()} /{" "}
+              {dailySpendable.limit.toLocaleString()}
+            </span>
+          </div>
+        </div>
+
+        {/* --- 2. งบประมาณ (Budgets) --- */}
+        <div style={styles.section}>
+          <div style={styles.sectionHeader}>
+            <h3 style={styles.sectionTitle}>งบประมาณ (Budgets)</h3>
+            <button
+              onClick={() => setIsManagingBudgets(true)}
+              style={styles.iconButton}
+            >
+              <Settings size={18} />
+            </button>
+          </div>
+          <div style={styles.budgetGrid}>
+            {budgets.map((budget) => {
+              const current = budget.currentAmount;
+              const total = budget.totalAmount;
+              const percentage = total === 0 ? 0 : (current / total) * 100;
+              return (
+                <div key={budget.id} style={styles.budgetBox}>
+                  <div style={styles.budgetHeader}>
+                    {getBudgetIcon(budget.name) || <Wallet size={20} />}
+                    <span>{getBudgetName(budget.name)}</span>
+                  </div>
+                  <div style={styles.hpBarOuter}>
+                    <div
+                      style={{ ...styles.hpBarInner, width: `${percentage}%` }}
+                    ></div>
+                  </div>
+                  <span style={styles.hpText}>
+                    {current.toLocaleString()} / {total.toLocaleString()}
+                  </span>
+                  <div style={styles.budgetActions}>
+                    <button
+                      onClick={() => setBudgetLogModal(budget)}
+                      style={styles.budgetButtonRed}
+                    >
+                      - ใช้
+                    </button>
+                    <button
+                      onClick={() => setBudgetAddModal(budget)}
+                      style={styles.budgetButtonGreen}
+                    >
+                      + เพิ่ม
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* --- 3. ค้างรับ / หนี้สิน --- */}
+        <div style={styles.grid2}>
+          {/* ค้างรับ (ซ้าย) */}
+          <div style={styles.section}>
+            <div style={styles.sectionHeader}>
+              <h3 style={styles.sectionTitle}>ค้างรับ</h3>
+              <button
+                onClick={() => setIsAddingReceivable(true)}
+                style={styles.iconButton}
+              >
+                <Plus size={18} />
+              </button>
+            </div>
+            <div style={styles.dueList}>
+              {receivables.length > 0 ? (
+                receivables.map((item) => (
+                  <div key={item.id} style={styles.dueItem}>
+                    <div style={styles.dueInfo}>
+                      <span>{item.name}</span>
+                      <strong>{item.amount.toLocaleString()}</strong>
+                    </div>
+                    <button
+                      onClick={() => setPaymentModal({ type: "receive", item })}
+                      style={styles.payButtonGreen}
+                    >
+                      <CheckCircle2 size={16} />
+                    </button>
+                  </div>
+                ))
+              ) : (
+                <p style={styles.emptyText}>ไม่มีค้างรับ</p>
+              )}
+            </div>
+            <div style={styles.totalRowSmall}>
+              <strong>รวมค้างรับ:</strong>
+              <strong>{totalReceivables.toLocaleString()}</strong>
+            </div>
+          </div>
+          {/* หนี้สิน (ขวา) */}
+          <div style={styles.section}>
+            <div style={styles.sectionHeader}>
+              <h3 style={styles.sectionTitle}>หนี้สิน</h3>
+              <button
+                onClick={() => setIsAddingLiability(true)}
+                style={styles.iconButton}
+              >
+                <Plus size={18} />
+              </button>
+            </div>
+            <div style={styles.dueList}>
+              {liabilities.length > 0 ? (
+                liabilities.map((item) => (
+                  <div key={item.id} style={styles.dueItem}>
+                    <div style={styles.dueInfo}>
+                      <span>{item.name}</span>
+                      <strong style={{ color: "#ffaaaa" }}>
+                        {item.amount.toLocaleString()}
+                      </strong>
+                    </div>
+                    <button
+                      onClick={() => setPaymentModal({ type: "pay", item })}
+                      style={styles.payButtonRed}
+                    >
+                      <Circle size={16} />
+                    </button>
+                  </div>
+                ))
+              ) : (
+                <p style={styles.emptyText}>ไม่มีหนี้สิน</p>
+              )}
+            </div>
+            <div style={styles.totalRowSmall}>
+              <strong>รวมหนี้สิน:</strong>
+              <strong style={{ color: "#ffaaaa" }}>
+                {totalLiabilities.toLocaleString()}
+              </strong>
+            </div>
+          </div>
+        </div>
+
+        {/* --- 4. ปุ่มสรุปผล --- */}
+        <Link to="/finance-summary" style={styles.summaryButton}>
+          <BarChart2 size={18} />
+          ดูสรุปผลประจำเดือน
+        </Link>
+      </div>{" "}
+      {/* จบ Scroll Area */}
+      {/* 5. Sticky Footer */}
+      <div style={styles.stickyFooter}>
+        <button
+          onClick={() => setIsTxModalOpen("income")}
+          style={styles.txButtonGreen}
+        >
+          <ArrowDown size={20} /> รายรับ
+        </button>
+        <button
+          onClick={() => setIsTxModalOpen("expense")}
+          style={styles.txButtonRed}
+        >
+          <ArrowUp size={20} /> รายจ่าย
+        </button>
+      </div>
+      {/* --- Modals (อัปเดต) --- */}
+      {isAddingAccount && (
+        <AddAccountModal onClose={() => setIsAddingAccount(false)} />
+      )}
+      {isAddingLiability && (
+        <AddDueModal
+          type="liability"
+          onClose={() => setIsAddingLiability(false)}
+        />
+      )}
+      {isAddingReceivable && (
+        <AddDueModal
+          type="receivable"
+          onClose={() => setIsAddingReceivable(false)}
+        />
+      )}
+      {paymentModal && (
+        <PaymentModal
+          info={paymentModal}
+          accounts={accounts}
+          onClose={() => setPaymentModal(null)}
+        />
+      )}
+      {isManagingBudgets && (
+        <BudgetManagerModal
+          budgets={budgets}
+          onClose={() => setIsManagingBudgets(false)}
+        />
+      )}
+      {budgetLogModal && (
+        <BudgetLogModal
+          budget={budgetLogModal}
+          accounts={accounts}
+          onClose={() => setBudgetLogModal(null)}
+        />
+      )}
+      {budgetAddModal && (
+        <BudgetAddModal
+          budget={budgetAddModal}
+          onClose={() => setBudgetAddModal(null)}
+        />
+      )}
+      {isTxModalOpen && (
+        <TransactionModal
+          type={isTxModalOpen}
+          accounts={accounts}
+          tags={tags}
+          budgets={budgets}
+          onClose={() => setIsTxModalOpen(null)}
+          onNavigateToTags={() => navigate("/tag-manager")}
+          dailySpendable={dailySpendable}
+          totalAssets={totalAssets}
+          totalRemainingBudgets={totalRemainingBudgets}
+          fixedExpense={fixedExpense}
+        />
+      )}
+      {/* (อัปเดต) ส่ง 'lastMonthFixedTotal' ไป */}
+      {isFixedExpenseModalOpen && (
+        <FixedExpenseModal
+          settings={settings}
+          onClose={() => setIsFixedExpenseModalOpen(false)}
+          lastMonthFixedTotal={lastMonthFixedTotal}
+        />
+      )}
     </div>
   );
 }
+
+// =======================================================
+// === (อัปเดต) Component: Modal ธุรกรรม (รายรับ/จ่าย) ===
+// =======================================================
+function TransactionModal({
+  type,
+  accounts,
+  tags,
+  budgets,
+  onClose,
+  onNavigateToTags,
+  dailySpendable,
+  totalAssets,
+  totalRemainingBudgets,
+  fixedExpense,
+}) {
+  const isExpense = type === "expense";
+  const title = isExpense ? "บันทึกรายจ่าย" : "บันทึกรายรับ";
+
+  const [amount, setAmount] = useState(0);
+  const [accountId, setAccountId] = useState(accounts[0]?.id || "");
+  const [classification, setClassification] = useState(
+    isExpense ? "variable" : "active"
+  );
+  const [tagId, setTagId] = useState("");
+  const [distributeIncome, setDistributeIncome] = useState(true);
+
+  const relevantTags = useMemo(() => {
+    return tags.filter((t) => t.type === type);
+  }, [tags, type]);
+
+  const handleSubmit = async () => {
+    const numAmount = Number(amount);
+    if (numAmount <= 0) {
+      alert("จำนวนเงินต้องมากกว่า 0");
+      return;
+    }
+    if (!accountId) {
+      alert("กรุณาเลือกบัญชี");
+      return;
+    }
+    if (!tagId) {
+      alert("กรุณาเลือกแท็ก");
+      return;
+    }
+
+    // (Alert System - เหมือนเดิม)
+    if (isExpense && classification === "variable") {
+      const newDailyUsed = dailySpendable.used + numAmount;
+      if (newDailyUsed > dailySpendable.limit) {
+        const tomorrowRemainingDays = Math.max(
+          1,
+          dailySpendable.remainingDays - 1
+        );
+        const newTotalAssets = totalAssets - numAmount;
+        const newAvailableToSpend =
+          newTotalAssets - totalRemainingBudgets - fixedExpense;
+        const tomorrowLimit = Math.max(
+          0,
+          newAvailableToSpend / tomorrowRemainingDays
+        );
+
+        if (
+          !window.confirm(
+            `⚠️ แจ้งเตือน: การใช้จ่ายนี้ (${numAmount.toLocaleString()}) จะทำให้ยอดใช้จ่ายวันนี้เกินกำหนด!\n\n` +
+              `(ถ้าคุณจ่าย: งบใช้จ่ายของวันพรุ่งนี้จะเหลือประมาณ: ${Math.floor(
+                tomorrowLimit
+              ).toLocaleString()} / วัน)\n\n` +
+              `คุณแน่ใจหรือไม่ว่าต้องการดำเนินการต่อ?`
+          )
+        ) {
+          return;
+        }
+      }
+    }
+
+    try {
+      const account = await db.accounts.get(Number(accountId));
+
+      if (isExpense) {
+        if (account.balance < numAmount) {
+          alert("เงินในบัญชีไม่พอ!");
+          return;
+        }
+        await db.accounts.update(account.id, {
+          balance: account.balance - numAmount,
+        });
+      } else {
+        await db.accounts.update(account.id, {
+          balance: account.balance + numAmount,
+        });
+        if (distributeIncome) {
+          const distributionAmount = numAmount * 0.1;
+          const defaultBudgetKeys = [
+            "giving",
+            "investing",
+            "education",
+            "rewards",
+            "saving",
+          ];
+          const budgetsToUpdate = budgets.filter((b) =>
+            defaultBudgetKeys.includes(b.name)
+          );
+          const updates = budgetsToUpdate.map((budget) => ({
+            key: budget.id,
+            changes: { totalAmount: budget.totalAmount + distributionAmount },
+          }));
+          if (updates.length > 0) {
+            await db.budgets.bulkUpdate(updates);
+          }
+        }
+      }
+
+      await db.transactions.add({
+        timestamp: new Date().toISOString(),
+        type: type,
+        amount: numAmount,
+        accountId: Number(accountId),
+        tagId: Number(tagId),
+        classification: classification,
+      });
+
+      if (isExpense && classification === "variable") {
+        const currentDailyUsed =
+          (await db.settings.get("dailySpendableUsed"))?.value || 0;
+        await db.settings.put({
+          key: "dailySpendableUsed",
+          value: currentDailyUsed + numAmount,
+        });
+      }
+
+      onClose();
+    } catch (error) {
+      console.error("Failed to add transaction:", error);
+    }
+  };
+
+  return (
+    <div style={styles.modalOverlay}>
+      <div style={styles.modalContent}>
+        <div style={styles.modalHeader}>
+          <h3>{title}</h3>
+          <button onClick={onClose} style={styles.closeButton}>
+            <X size={24} />
+          </button>
+        </div>
+        <div style={styles.modalForm}>
+          <div style={styles.inputGroup}>
+            <label>จำนวนเงิน</label>
+            <input
+              type="number"
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+              style={styles.input}
+            />
+          </div>
+          <div style={styles.inputGroup}>
+            <label>{isExpense ? "หักจากบัญชี" : "เพิ่มเข้าบัญชี"}</label>
+            <select
+              value={accountId}
+              onChange={(e) => setAccountId(e.target.value)}
+              style={styles.select}
+            >
+              {accounts.map((acc) => (
+                <option key={acc.id} value={acc.id}>
+                  {acc.name} (คงเหลือ: {acc.balance.toLocaleString()})
+                </option>
+              ))}
+            </select>
+          </div>
+          <div style={styles.inputGroup}>
+            <label>ประเภท (Type)</label>
+            <select
+              value={classification}
+              onChange={(e) => setClassification(e.target.value)}
+              style={styles.select}
+            >
+              {isExpense ? (
+                <>
+                  <option value="variable">
+                    รายจ่ายไม่คงที่ (ค่าอาหาร+อื่นๆ)
+                  </option>
+                  <option value="fixed">รายจ่ายคงที่</option>
+                </>
+              ) : (
+                <>
+                  <option value="active">Active Income</option>
+                  <option value="passive">Passive Income</option>
+                </>
+              )}
+            </select>
+          </div>
+
+          {!isExpense && (
+            <div style={styles.checkboxGroup}>
+              <input
+                type="checkbox"
+                id="distributeIncome"
+                checked={distributeIncome}
+                onChange={(e) => setDistributeIncome(e.target.checked)}
+              />
+              <label htmlFor="distributeIncome" style={styles.checkboxLabel}>
+                แบ่ง 10% (x5) เข้าเพดานงบประมาณ
+              </label>
+            </div>
+          )}
+
+          <div style={styles.inputGroup}>
+            <label>แท็ก (Tag)</label>
+            <div style={styles.budgetInputBox}>
+              <select
+                value={tagId}
+                onChange={(e) => setTagId(e.target.value)}
+                style={styles.select}
+              >
+                <option value="" disabled>
+                  -- เลือกแท็ก --
+                </option>
+                {relevantTags.map((tag) => (
+                  <option key={tag.id} value={tag.id}>
+                    {tag.name}
+                  </option>
+                ))}
+              </select>
+              <button onClick={onNavigateToTags} style={styles.editButton}>
+                <Edit size={18} />
+              </button>
+            </div>
+          </div>
+
+          <button
+            onClick={handleSubmit}
+            style={isExpense ? styles.txButtonRed : styles.txButtonGreen}
+          >
+            {isExpense ? "บันทึกรายจ่าย" : "บันทึกรายรับ"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// =======================================================
+// === (อัปเดต) Component: Modal ตั้งค่า Fixed Expense ===
+// =======================================================
+function FixedExpenseModal({ settings, onClose, lastMonthFixedTotal }) {
+  const [mode, setMode] = useState(
+    settings.find((s) => s.key === "fixedExpenseMode")?.value || "manual"
+  );
+  const [amount, setAmount] = useState(
+    settings.find((s) => s.key === "manualFixedExpense")?.value || 10000
+  );
+
+  // (ใหม่) เช็คว่ามีข้อมูลเดือนที่แล้วหรือไม่ (null = ไม่มี, 0 หรือ > 0 = มี)
+  const hasLastMonthData = lastMonthFixedTotal !== null;
+
+  const handleSave = async () => {
+    // (ใหม่) ตรวจสอบ
+    if (mode === "auto" && !hasLastMonthData) {
+      alert(
+        "ไม่สามารถเลือกโหมดอัตโนมัติได้ เพราะยังไม่มีข้อมูลของเดือนที่แล้ว"
+      );
+      return;
+    }
+
+    try {
+      await db.settings.put({ key: "fixedExpenseMode", value: mode });
+      await db.settings.put({
+        key: "manualFixedExpense",
+        value: Number(amount),
+      });
+      onClose();
+    } catch (e) {
+      console.error("Failed to save settings:", e);
+    }
+  };
+
+  return (
+    <div style={styles.modalOverlay}>
+      <div style={styles.modalContent}>
+        <div style={styles.modalHeader}>
+          <h3>ตั้งค่ารายจ่ายคงที่ (สำหรับคำนวณ)</h3>
+          <button onClick={onClose} style={styles.closeButton}>
+            <X size={24} />
+          </button>
+        </div>
+        <div style={styles.modalForm}>
+          <p style={{ fontSize: "0.9rem", color: "#aaa" }}>
+            ค่านี้ใช้เพื่อ "ประมาณการ" เงินที่ใช้ได้ต่อวัน (จะไม่หักเงินจริง)
+          </p>
+          <div style={styles.inputGroup}>
+            <label>โหมด</label>
+            <select
+              value={mode}
+              onChange={(e) => setMode(e.target.value)}
+              style={styles.select}
+            >
+              <option value="manual">กำหนดเอง</option>
+
+              {/* (อัปเดต) เปิด/ปิด ปุ่ม Auto */}
+              <option value="auto" disabled={!hasLastMonthData}>
+                อัตโนมัติ
+                {hasLastMonthData
+                  ? ` (จากเดือนที่แล้ว: ${lastMonthFixedTotal.toLocaleString()})`
+                  : " (ยังไม่มีข้อมูลเดือนที่แล้ว)"}
+              </option>
+            </select>
+          </div>
+          {mode === "manual" && (
+            <div style={styles.inputGroup}>
+              <label>จำนวนเงิน (รายจ่ายคงที่/เดือน)</label>
+              <input
+                type="number"
+                value={amount}
+                onChange={(e) => setAmount(e.target.value)}
+                style={styles.input}
+              />
+            </div>
+          )}
+          <button onClick={handleSave} style={styles.saveButton}>
+            บันทึก
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// (Component 'BudgetManagerModal' - อัปเดต)
+function BudgetManagerModal({ budgets, onClose }) {
+  const [newName, setNewName] = useState("");
+  const [editName, setEditName] = useState("");
+  const [editingId, setEditingId] = useState(null);
+  const handleAdd = async () => {
+    if (!newName.trim()) return;
+    const now = new Date();
+    const startOfMonth = new Date(
+      now.getFullYear(),
+      now.getMonth(),
+      1
+    ).toISOString();
+    try {
+      await db.budgets.add({
+        name: newName,
+        currentAmount: 0,
+        totalAmount: 0,
+        lastReset: startOfMonth,
+        icon: null,
+      });
+      setNewName("");
+    } catch (e) {
+      if (e.name === "ConstraintError") alert("มีชื่อนี้อยู่แล้ว");
+    }
+  };
+  const handleDelete = async (id, name) => {
+    if (BUDGET_CATEGORIES.some((c) => c.key === name)) {
+      alert(`ไม่สามารถลบหมวดหมู่ "${getBudgetName(name)}" ได้`);
+      return;
+    }
+    if (window.confirm(`ลบงบประมาณ "${name}"?`)) {
+      await db.budgets.delete(id);
+    }
+  };
+  const handleRename = async () => {
+    if (!editName.trim()) return;
+    try {
+      await db.budgets.update(editingId, { name: editName });
+      setEditingId(null);
+      setEditName("");
+    } catch (e) {
+      if (e.name === "ConstraintError") alert("มีชื่อนี้อยู่แล้ว");
+    }
+  };
+  return (
+    <div style={styles.modalOverlay}>
+      <div style={styles.modalContent}>
+        <div style={styles.modalHeader}>
+          <h3>จัดการงบประมาณ</h3>
+          <button onClick={onClose} style={styles.closeButton}>
+            <X size={24} />
+          </button>
+        </div>
+        <div style={styles.inputGroup} className="modalForm">
+          <label>เพิ่มงบประมาณใหม่</label>
+          <div style={styles.budgetInputBox}>
+            <input
+              type="text"
+              value={newName}
+              onChange={(e) => setNewName(e.target.value)}
+              style={styles.input}
+              placeholder="เช่น 'ท่องเที่ยว'"
+            />
+            <button onClick={handleAdd} style={styles.saveButton}>
+              <Plus size={18} />
+            </button>
+          </div>
+        </div>
+        <hr style={styles.hr} />
+        <div style={styles.budgetManagerList}>
+          {budgets.map((b) => (
+            <div key={b.id} style={styles.budgetItem}>
+              {editingId === b.id ? (
+                <div style={styles.budgetInputBox}>
+                  <input
+                    type="text"
+                    value={editName}
+                    onChange={(e) => setEditName(e.target.value)}
+                    style={styles.input}
+                  />
+                  <button onClick={handleRename} style={styles.saveButton}>
+                    <CheckCircle2 size={18} />
+                  </button>
+                </div>
+              ) : (
+                <>
+                  <span>{getBudgetName(b.name)}</span>
+                  <div style={styles.budgetAdminButtons}>
+                    <button
+                      onClick={() => {
+                        setEditingId(b.id);
+                        setEditName(b.name);
+                      }}
+                      style={styles.iconButton}
+                    >
+                      <Edit size={16} />
+                    </button>
+                    <button
+                      onClick={() => handleDelete(b.id, b.name)}
+                      style={styles.deleteButton}
+                      disabled={BUDGET_CATEGORIES.some((c) => c.key === b.name)}
+                    >
+                      <Trash2 size={16} />
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// (Component 'BudgetLogModal' - เหมือนเดิม)
+function BudgetLogModal({ budget, accounts, onClose }) {
+  const title = `ใช้เงินงบ: ${getBudgetName(budget.name)}`;
+  const [amount, setAmount] = useState(0);
+  const [accountId, setAccountId] = useState(accounts[0]?.id || "");
+  const handleSubmit = async () => {
+    const numAmount = Number(amount);
+    if (numAmount <= 0) {
+      alert("จำนวนเงินต้องมากกว่า 0");
+      return;
+    }
+    if (!accountId) {
+      alert("กรุณาเลือกบัญชี");
+      return;
+    }
+    const account = accounts.find((a) => a.id === Number(accountId));
+    if (account.balance < numAmount) {
+      alert("เงินในบัญชีไม่พอ!");
+      return;
+    }
+    if (budget.currentAmount + numAmount > budget.totalAmount) {
+      alert("ใช้งบประมาณเกินกำหนด! (กรุณา 'เพิ่ม' งบก่อน)");
+      return;
+    }
+    try {
+      await db.accounts.update(account.id, {
+        balance: account.balance - numAmount,
+      });
+      await db.budgets.update(budget.id, {
+        currentAmount: budget.currentAmount + numAmount,
+      });
+      onClose();
+    } catch (error) {
+      console.error("Failed to use budget:", error);
+    }
+  };
+  return (
+    <div style={styles.modalOverlay}>
+      <div style={styles.modalContent}>
+        <div style={styles.modalHeader}>
+          <h3>{title}</h3>
+          <button onClick={onClose} style={styles.closeButton}>
+            <X size={24} />
+          </button>
+        </div>
+        <div style={styles.modalForm}>
+          <div style={styles.inputGroup}>
+            <label>จำนวนเงินที่ใช้</label>
+            <input
+              type="number"
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+              style={styles.input}
+            />
+          </div>
+          <div style={styles.inputGroup}>
+            <label>หักจากบัญชี</label>
+            <select
+              value={accountId}
+              onChange={(e) => setAccountId(e.target.value)}
+              style={styles.select}
+            >
+              {accounts.map((acc) => (
+                <option key={acc.id} value={acc.id}>
+                  {acc.name} (คงเหลือ: {acc.balance.toLocaleString()})
+                </option>
+              ))}
+            </select>
+          </div>
+          <button onClick={handleSubmit} style={styles.txButtonRed}>
+            <ArrowUp size={18} /> ยืนยันการใช้
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// (Component 'BudgetAddModal' - เหมือนเดิม)
+function BudgetAddModal({ budget, onClose }) {
+  const title = `เพิ่มเพดานงบ: ${getBudgetName(budget.name)}`;
+  const [amount, setAmount] = useState(0);
+  const handleSubmit = async () => {
+    const numAmount = Number(amount);
+    if (numAmount <= 0) {
+      alert("จำนวนเงินต้องมากกว่า 0");
+      return;
+    }
+    try {
+      await db.budgets.update(budget.id, {
+        totalAmount: budget.totalAmount + numAmount,
+      });
+      onClose();
+    } catch (error) {
+      console.error("Failed to add to budget:", error);
+    }
+  };
+  return (
+    <div style={styles.modalOverlay}>
+      <div style={styles.modalContent}>
+        <div style={styles.modalHeader}>
+          <h3>{title}</h3>
+          <button onClick={onClose} style={styles.closeButton}>
+            <X size={24} />
+          </button>
+        </div>
+        <div style={styles.modalForm}>
+          <p>นี่คือการเพิ่ม "เพดาน" งบประมาณ (ไม่ได้หักเงินจริง)</p>
+          <div style={styles.inputGroup}>
+            <label>จำนวนเงินที่จะเพิ่ม</label>
+            <input
+              type="number"
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+              style={styles.input}
+            />
+          </div>
+          <button onClick={handleSubmit} style={styles.txButtonGreen}>
+            <Plus size={18} /> เพิ่มเพดาน
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// (Component 'AddAccountModal' - เหมือนเดิม)
+function AddAccountModal({ onClose }) {
+  const [name, setName] = useState("");
+  const [balance, setBalance] = useState(0);
+  const handleSubmit = async () => {
+    if (!name || balance < 0) {
+      alert("กรุณากรอกชื่อ และยอดเงิน (ห้ามติดลบ)");
+      return;
+    }
+    try {
+      await db.accounts.add({ name: name, balance: Number(balance) });
+      onClose();
+    } catch (error) {
+      console.error("Failed to add account:", error);
+    }
+  };
+  return (
+    <div style={styles.modalOverlay}>
+      <div style={styles.modalContent}>
+        <div style={styles.modalHeader}>
+          <h3>เพิ่มบัญชีใหม่</h3>
+          <button onClick={onClose} style={styles.closeButton}>
+            <X size={24} />
+          </button>
+        </div>
+        <div style={styles.modalForm}>
+          <div style={styles.inputGroup}>
+            <label>ชื่อบัญชี (เช่น "เงินสด", "ธนาคาร KBank")</label>
+            <input
+              type="text"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              style={styles.input}
+            />
+          </div>
+          <div style={styles.inputGroup}>
+            <label>ยอดเงินเริ่มต้น</label>
+            <input
+              type="number"
+              value={balance}
+              onChange={(e) => setBalance(e.target.value)}
+              style={styles.input}
+            />
+          </div>
+          <button onClick={handleSubmit} style={styles.saveButton}>
+            <Plus size={18} /> บันทึก
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// (Component 'AddDueModal' - เหมือนเดิม)
+function AddDueModal({ type, onClose }) {
+  const isLiability = type === "liability";
+  const title = isLiability ? "เพิ่มหนี้สิน" : "เพิ่มค้างรับ";
+  const [name, setName] = useState("");
+  const [amount, setAmount] = useState(0);
+  const handleSubmit = async () => {
+    if (!name || amount <= 0) {
+      alert("กรุณากรอกชื่อ และยอดเงิน (ต้องมากกว่า 0)");
+      return;
+    }
+    try {
+      if (isLiability) {
+        await db.liabilities.add({
+          name: name,
+          amount: Number(amount),
+          status: "outstanding",
+        });
+      } else {
+        await db.receivables.add({
+          name: name,
+          amount: Number(amount),
+          status: "pending",
+        });
+      }
+      onClose();
+    } catch (error) {
+      console.error(`Failed to add ${type}:`, error);
+    }
+  };
+  return (
+    <div style={styles.modalOverlay}>
+      <div style={styles.modalContent}>
+        <div style={styles.modalHeader}>
+          <h3>{title}</h3>
+          <button onClick={onClose} style={styles.closeButton}>
+            <X size={24} />
+          </button>
+        </div>
+        <div style={styles.modalForm}>
+          <div style={styles.inputGroup}>
+            <label>ชื่อ (เช่น "กู้ยืม A", "B ยืมเงิน")</label>
+            <input
+              type="text"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              style={styles.input}
+            />
+          </div>
+          <div style={styles.inputGroup}>
+            <label>จำนวนเงิน</label>
+            <input
+              type="number"
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+              style={styles.input}
+            />
+          </div>
+          <button onClick={handleSubmit} style={styles.saveButton}>
+            <Plus size={18} /> บันทึก
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// (Component 'PaymentModal' - เหมือนเดิม)
+function PaymentModal({ info, accounts, onClose }) {
+  const { type, item } = info;
+  const isPaying = type === "pay";
+  const title = isPaying ? `จ่ายหนี้: ${item.name}` : `รับเงิน: ${item.name}`;
+  const [accountId, setAccountId] = useState(accounts[0]?.id || "");
+  const handleSubmit = async () => {
+    if (!accountId) {
+      alert("กรุณาเลือกบัญชีที่จะใช้");
+      return;
+    }
+    try {
+      const account = await db.accounts.get(Number(accountId));
+      if (!account) throw new Error("Account not found");
+      if (isPaying) {
+        if (account.balance < item.amount) {
+          alert("เงินในบัญชีไม่พอ!");
+          return;
+        }
+        await db.accounts.update(account.id, {
+          balance: account.balance - item.amount,
+        });
+        await db.liabilities.update(item.id, { status: "paid" });
+      } else {
+        await db.accounts.update(account.id, {
+          balance: account.balance + item.amount,
+        });
+        await db.receivables.update(item.id, { status: "received" });
+      }
+      onClose();
+    } catch (error) {
+      console.error(`Failed to ${type}:`, error);
+      alert(`เกิดข้อผิดพลาด: ${error.message}`);
+    }
+  };
+  return (
+    <div style={styles.modalOverlay}>
+      <div style={styles.modalContent}>
+        <div style={styles.modalHeader}>
+          <h3>{title}</h3>
+          <button onClick={onClose} style={styles.closeButton}>
+            <X size={24} />
+          </button>
+        </div>
+        <div style={styles.modalForm}>
+          <p
+            style={{
+              textAlign: "center",
+              fontSize: "1.5rem",
+              margin: "10px 0",
+            }}
+          >
+            จำนวน:{" "}
+            <strong style={{ color: isPaying ? "#ffaaaa" : "#64ff64" }}>
+              {item.amount.toLocaleString()}
+            </strong>
+          </p>
+          <div style={styles.inputGroup}>
+            <label>
+              {isPaying ? "เลือกบัญชีที่จะใช้จ่าย" : "เลือกบัญชีที่จะรับเงิน"}
+            </label>
+            <select
+              value={accountId}
+              onChange={(e) => setAccountId(e.target.value)}
+              style={styles.select}
+            >
+              {accounts.map((acc) => (
+                <option key={acc.id} value={acc.id}>
+                  {acc.name} (คงเหลือ: {acc.balance.toLocaleString()})
+                </option>
+              ))}
+            </select>
+          </div>
+          <button
+            onClick={handleSubmit}
+            style={isPaying ? styles.txButtonRed : styles.txButtonGreen}
+          >
+            {isPaying ? "ยืนยันการจ่าย" : "ยืนยันการรับเงิน"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// === CSS Styles (เหมือนเดิม) ===
+const styles = {
+  page: {
+    display: "flex",
+    flexDirection: "column",
+    height: "100%",
+  },
+  scrollArea: {
+    flexGrow: 1,
+    overflowY: "auto",
+    padding: "10px",
+    paddingBottom: "90px",
+  },
+  stickyFooter: {
+    flexShrink: 0,
+    display: "grid",
+    gridTemplateColumns: "1fr 1fr",
+    gap: "10px",
+    padding: "10px",
+    backgroundColor: "#1a1a1a",
+    borderTop: "1px solid #444",
+  },
+  firstTimeSetup: {
+    padding: "30px 15px",
+    textAlign: "center",
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "center",
+    gap: "15px",
+  },
+  section: {
+    backgroundColor: "#2a2a2a",
+    borderRadius: "8px",
+    padding: "15px",
+    marginBottom: "15px",
+    display: "flex",
+    flexDirection: "column",
+  },
+  sectionHeader: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: "10px",
+    borderBottom: "1px solid #444",
+    paddingBottom: "10px",
+  },
+  sectionTitle: {
+    margin: 0,
+    fontSize: "1.2rem",
+  },
+  iconButton: {
+    background: "none",
+    border: "none",
+    color: "#64cfff",
+    cursor: "pointer",
+    padding: "5px",
+  },
+  accountItem: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    padding: "10px 5px",
+    borderBottom: "1px solid #333",
+  },
+  accountInfo: {
+    display: "flex",
+    alignItems: "center",
+    gap: "10px",
+  },
+  accountBalance: {
+    display: "flex",
+    alignItems: "center",
+    gap: "5px",
+    fontSize: "1.1rem",
+  },
+  deleteButton: {
+    background: "none",
+    border: "none",
+    color: "#aaa",
+    cursor: "pointer",
+    padding: "5px",
+  },
+  totalRow: {
+    display: "flex",
+    justifyContent: "space-between",
+    padding: "10px 5px 0 5px",
+    fontSize: "1.1rem",
+    color: "#64ff64",
+  },
+  dailySpendBox: {
+    marginTop: "15px",
+    paddingTop: "10px",
+    borderTop: "1px solid #444",
+  },
+  dailySpendHeader: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    fontSize: "0.9rem",
+    color: "#aaa",
+    marginBottom: "5px",
+  },
+  infoButton: {
+    background: "none",
+    border: "none",
+    color: "#aaa",
+    cursor: "pointer",
+    padding: 0,
+    display: "flex",
+  },
+  grid2: {
+    display: "grid",
+    gridTemplateColumns: "1fr 1fr",
+    gap: "15px",
+  },
+  emptyText: {
+    color: "#888",
+    textAlign: "center",
+    padding: "10px",
+    flexGrow: 1,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  txButtonGreen: {
+    background: "#3a8b3a",
+    color: "white",
+    border: "none",
+    padding: "15px",
+    borderRadius: "8px",
+    fontSize: "1.1rem",
+    cursor: "pointer",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: "8px",
+  },
+  txButtonRed: {
+    background: "#c0392b",
+    color: "white",
+    border: "none",
+    padding: "15px",
+    borderRadius: "8px",
+    fontSize: "1.1rem",
+    cursor: "pointer",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: "8px",
+  },
+  summaryButton: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: "10px",
+    width: "100%",
+    padding: "12px",
+    background: "#646cff",
+    color: "white",
+    border: "none",
+    borderRadius: "8px",
+    fontSize: "1rem",
+    cursor: "pointer",
+    textDecoration: "none",
+    marginTop: "15px",
+    boxSizing: "border-box",
+  },
+  dueList: {
+    display: "flex",
+    flexDirection: "column",
+    gap: "5px",
+    flexGrow: 1,
+  },
+  dueItem: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    padding: "8px",
+    backgroundColor: "#333",
+    borderRadius: "5px",
+  },
+  dueInfo: {
+    display: "flex",
+    flexDirection: "column",
+    fontSize: "0.9rem",
+    gap: "2px",
+  },
+  payButtonGreen: {
+    background: "#3a8b3a",
+    color: "white",
+    border: "none",
+    borderRadius: "5px",
+    padding: "8px",
+    cursor: "pointer",
+    display: "flex",
+  },
+  payButtonRed: {
+    background: "#8b3a3a",
+    color: "white",
+    border: "none",
+    borderRadius: "5px",
+    padding: "8px",
+    cursor: "pointer",
+    display: "flex",
+  },
+  totalRowSmall: {
+    display: "flex",
+    justifyContent: "space-between",
+    padding: "10px 5px 0 5px",
+    fontSize: "0.9rem",
+    borderTop: "1px solid #444",
+    marginTop: "10px",
+  },
+  budgetGrid: {
+    display: "grid",
+    gridTemplateColumns: "1fr 1fr",
+    gap: "10px",
+  },
+  budgetBox: {
+    backgroundColor: "#333",
+    borderRadius: "8px",
+    padding: "10px",
+  },
+  budgetHeader: {
+    display: "flex",
+    alignItems: "center",
+    gap: "5px",
+    fontWeight: "bold",
+    fontSize: "0.9rem",
+  },
+  hpBarOuter: {
+    width: "100%",
+    height: "10px",
+    backgroundColor: "#1a1a1a",
+    borderRadius: "5px",
+    marginTop: "8px",
+    overflow: "hidden",
+  },
+  hpBarInner: {
+    height: "100%",
+    backgroundColor: "#64cfff",
+    borderRadius: "5px",
+    transition: "width 0.3s",
+  },
+  hpText: {
+    fontSize: "0.8rem",
+    color: "#aaa",
+    textAlign: "center",
+    display: "block",
+    marginTop: "2px",
+  },
+  budgetActions: {
+    display: "flex",
+    gap: "5px",
+    marginTop: "8px",
+  },
+  budgetButtonRed: {
+    background: "#8b3a3a",
+    color: "white",
+    border: "none",
+    borderRadius: "5px",
+    padding: "5px",
+    flex: 1,
+    fontSize: "0.8rem",
+    cursor: "pointer",
+  },
+  budgetButtonGreen: {
+    background: "#3a8b3a",
+    color: "white",
+    border: "none",
+    borderRadius: "5px",
+    padding: "5px",
+    flex: 1,
+    fontSize: "0.8rem",
+    cursor: "pointer",
+  },
+  modalOverlay: {
+    position: "fixed",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: "rgba(0, 0, 0, 0.7)",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    zIndex: 200,
+    padding: "15px",
+  },
+  modalContent: {
+    backgroundColor: "#2a2a2a",
+    borderRadius: "8px",
+    padding: "20px",
+    width: "100%",
+    maxWidth: "400px",
+  },
+  modalHeader: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    borderBottom: "1px solid #444",
+    paddingBottom: "10px",
+    marginBottom: "15px",
+  },
+  closeButton: {
+    background: "none",
+    border: "none",
+    color: "white",
+    padding: 0,
+    cursor: "pointer",
+    display: "flex",
+  },
+  modalForm: {
+    display: "flex",
+    flexDirection: "column",
+    gap: "15px",
+  },
+  inputGroup: {
+    display: "flex",
+    flexDirection: "column",
+    gap: "5px",
+  },
+  input: {
+    width: "100%",
+    padding: "10px",
+    border: "1px solid #555",
+    borderRadius: "5px",
+    backgroundColor: "#333",
+    color: "white",
+    fontSize: "1rem",
+    boxSizing: "border-box",
+  },
+  select: {
+    width: "100%",
+    padding: "10px",
+    border: "1px solid #555",
+    borderRadius: "5px",
+    backgroundColor: "#333",
+    color: "white",
+    fontSize: "1rem",
+    boxSizing: "border-box",
+  },
+  saveButton: {
+    background: "#646cff",
+    color: "white",
+    border: "none",
+    padding: "10px 15px",
+    borderRadius: "5px",
+    cursor: "pointer",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: "5px",
+    fontSize: "1rem",
+  },
+  budgetManagerList: {
+    display: "flex",
+    flexDirection: "column",
+    gap: "10px",
+    maxHeight: "300px",
+    overflowY: "auto",
+  },
+  budgetItem: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    padding: "10px",
+    backgroundColor: "#333",
+    borderRadius: "5px",
+  },
+  budgetInputBox: {
+    display: "flex",
+    gap: "5px",
+    flexGrow: 1,
+  },
+  budgetAdminButtons: {
+    display: "flex",
+    gap: "8px",
+  },
+  hr: {
+    border: "none",
+    borderTop: "1px solid #444",
+    margin: "15px 0",
+  },
+  editButton: {
+    background: "none",
+    border: "1px solid #888",
+    color: "#888",
+    cursor: "pointer",
+    padding: "6px",
+    borderRadius: "5px",
+    display: "flex",
+  },
+  errorBox: {
+    display: "flex",
+    alignItems: "center",
+    gap: "10px",
+    backgroundColor: "#4d2a2a",
+    color: "#ffaaaa",
+    padding: "10px",
+    borderRadius: "5px",
+    fontSize: "0.9rem",
+    marginTop: "5px",
+  },
+  checkboxGroup: {
+    display: "flex",
+    alignItems: "center",
+    gap: "10px",
+    marginTop: "-5px",
+    marginBottom: "5px",
+  },
+  checkboxLabel: {
+    fontSize: "0.9rem",
+    color: "#aaa",
+  },
+};
 
 export default Finance;

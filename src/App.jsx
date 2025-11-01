@@ -16,10 +16,11 @@ import Health from "./pages/Health";
 import Amway from "./pages/Amway";
 import Finance from "./pages/Finance";
 import DreamListPage from "./pages/DreamListPage";
-
-// === START CHANGE: IMPORT 2 ไฟล์ใหม่ ===
 import RoutineSetManager from "./pages/RoutineSetManager";
 import RoutineSetEditor from "./pages/RoutineSetEditor";
+import FinanceSummary from "./pages/FinanceSummary";
+// === START CHANGE: IMPORT ไฟล์ใหม่ ===
+import TagManager from "./pages/TagManager";
 // === END CHANGE ===
 
 function App() {
@@ -55,28 +56,32 @@ function App() {
         <Route path="/" element={<MainLayout user={userProfile} />}>
           <Route index element={<Home />} />
 
+          {/* Footer Tabs */}
           <Route path="amway" element={<Amway />} />
           <Route path="health" element={<Health />} />
           <Route path="finance" element={<Finance />} />
           <Route path="profile" element={<Profile />} />
 
+          {/* Slide Menu */}
           <Route path="edit-routine" element={<EditRoutine />} />
           <Route path="penalty" element={<Penalty />} />
 
+          {/* Header */}
           <Route path="mailbox" element={<Mailbox />} />
           <Route path="shop" element={<Shop />} />
+
+          {/* Sub Pages */}
           <Route path="dreams" element={<DreamListPage />} />
-
-          {/* === START CHANGE: ADD 2 ROUTES ใหม่สำหรับ Routine === */}
-          {/* หน้าสำหรับ "จัดการ" รายการ Routine Sets (เช่น สร้าง/ลบ กิจวัตรเช้า) */}
           <Route path="routine-set-manager" element={<RoutineSetManager />} />
-
-          {/* หน้าสำหรับ "แก้ไข" กิจกรรมภายใน Routine Set นั้นๆ */}
-          {/* :setId คือการบอกว่าเราจะส่ง ID ของ Set ไปใน URL */}
           <Route
             path="routine-set-editor/:setId"
             element={<RoutineSetEditor />}
           />
+
+          {/* Finance Sub Pages */}
+          <Route path="finance-summary" element={<FinanceSummary />} />
+          {/* === START CHANGE: ADD Route ใหม่สำหรับ Tags === */}
+          <Route path="tag-manager" element={<TagManager />} />
           {/* === END CHANGE === */}
 
           <Route path="*" element={<Navigate to="/" replace />} />

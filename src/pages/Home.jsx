@@ -18,9 +18,10 @@ import {
   Bell,
 } from "lucide-react";
 
-// === Helper Functions (เหมือนเดิม) ===
+// === Helper Functions (อัปเดต) ===
 const getItemKey = (item) => `${item.startTime}-${item.activityId}`;
 const getRewardMultiplier = (activityLevel) => {
+  // (Logic นี้เหมือนเดิม)
   const baseMin = 10;
   const baseMax = 15;
   const levelCap = 100;
@@ -38,6 +39,8 @@ const timeToMinutes = (timeStr) => {
 const getTodayDateString = () => {
   return new Date().toLocaleDateString("en-CA");
 };
+
+// === 1. START CHANGE: เปลี่ยนชื่อ Key ===
 const getStoredTodaySet = (key) => {
   try {
     const stored = localStorage.getItem(key);
@@ -63,6 +66,8 @@ const storeTodaySet = (key, set) => {
     console.error("Failed to store state in localStorage", e);
   }
 };
+// === END CHANGE ===
+
 const calculateQuestReward = (difficulty) => {
   const rand = (min, max) => Math.floor(Math.random() * (max - min + 1)) + min;
   switch (difficulty) {
@@ -92,26 +97,32 @@ const getQuestCountdown = (endTimeISO, now) => {
 // === Main Component ===
 function Home() {
   const [currentTime, setCurrentTime] = useState(new Date());
-  const [completedItems, setCompletedItems] = useState(() =>
-    getStoredTodaySet("completedItems")
+
+  // === 2. START CHANGE: เปลี่ยนชื่อ State ===
+  // (จาก failedItems/completedItems เป็น 'processedItems' (ที่ประมวลผลแล้ว))
+  const [processedItems, setProcessedItems] = useState(() =>
+    getStoredTodaySet("processedItems")
   );
-  const [failedItems, setFailedItems] = useState(() =>
-    getStoredTodaySet("failedItems")
-  );
+  // === END CHANGE ===
 
   const [isProcessing, setIsProcessing] = useState(false);
-  const failedItemsRef = useRef(failedItems);
+
+  // === 3. START CHANGE: อัปเดต Ref ===
+  const processedItemsRef = useRef(processedItems);
   useEffect(() => {
-    failedItemsRef.current = failedItems;
-  }, [failedItems]);
+    processedItemsRef.current = processedItems;
+  }, [processedItems]);
+  // === END CHANGE ===
 
   const [overrideActivity, setOverrideActivity] = useState(null);
   const [showConfirm, setShowConfirm] = useState(false);
   const [rewardInfo, setRewardInfo] = useState(null);
-
   const [isTaskModalOpen, setIsTaskModalOpen] = useState(false);
   const [taskToEdit, setTaskToEdit] = useState(null);
   const [selectedTask, setSelectedTask] = useState(null);
+
+  // (ใหม่) State สำหรับล็อก Task
+  const [isProcessingTasks, setIsProcessingTasks] = useState(false);
 
   // --- 1. ดึงข้อมูล DB ---
   const user = useLiveQuery(() => db.userProfile.toCollection().first());
@@ -121,68 +132,51 @@ function Home() {
   const penalties = useLiveQuery(() => db.penalties.toArray(), []);
   const allTasks = useLiveQuery(() => db.tasks.toArray(), []);
 
-  // === 2. START CHANGE: (ใหม่) Logic การจัดเรียง (Sorting) v2 ===
+  // (Logic จัดเรียง Task - เหมือนเดิม)
   const activeTasks = useMemo(() => {
     if (!allTasks) return [];
-
     const now = currentTime.getTime();
     const tasks = allTasks.filter((q) => q.status === "active");
-
-    // --- Group 1: Tasks ที่เริ่มไปแล้ว ---
-    // (รวม Tasks ที่หมดเวลาแล้ว และ Tasks ที่กำลังดำเนินการ)
     const startedTasks = tasks.filter(
       (q) => new Date(q.startTime).getTime() <= now
     );
-
-    // --- Group 2: Tasks ที่ยังไม่เริ่ม ---
     const notStartedTasks = tasks.filter(
       (q) => new Date(q.startTime).getTime() > now
     );
-
-    // --- Sort Group 1: (Rule: เรียงตามเวลาจบ, ใครจบก่อน/หมดเวลาก่อน ขึ้นก่อน) ---
     startedTasks.sort((a, b) => {
-      // (จัดการ Event ที่ไม่มีเวลาจบ -> ให้ไปอยู่ท้ายสุดของกลุ่มนี้)
-      if (a.endTime === null && b.endTime === null) return 0; // Events ทั้งคู่
-      if (a.endTime === null) return 1; // a (Event) ไปอยู่หลัง b (Task)
-      if (b.endTime === null) return -1; // b (Event) ไปอยู่หลัง a (Task)
-
-      // Task ทั้งคู่, เรียงตามเวลาจบ
+      if (a.endTime === null && b.endTime === null) return 0;
+      if (a.endTime === null) return 1;
+      if (b.endTime === null) return -1;
       return new Date(a.endTime) - new Date(b.endTime);
     });
-
-    // --- Sort Group 2: (Rule: เรียงตามเวลาเริ่ม, ใครเริ่มก่อน ขึ้นก่อน) ---
     notStartedTasks.sort((a, b) => {
       return new Date(a.startTime) - new Date(b.startTime);
     });
-
-    // รวม 2 กลุ่ม
     return [...startedTasks, ...notStartedTasks];
-  }, [allTasks, currentTime]); // (สำคัญ) ต้องอัปเดตเมื่อ 'currentTime' เปลี่ยน
-  // === END CHANGE ===
+  }, [allTasks, currentTime]);
 
   // --- 2. Ticker (ตัวนับเวลา) ---
   useEffect(() => {
-    // (Logic ส่วนนี้เหมือนเดิม)
     const timer = setInterval(() => {
       const now = new Date();
       setCurrentTime(now);
+
+      // === 4. START CHANGE: อัปเดตการรีเซ็ต ===
       const storedDate = JSON.parse(
-        localStorage.getItem("completedItems") || "{}"
+        localStorage.getItem("processedItems") || "{}"
       ).date;
       if (storedDate && storedDate !== getTodayDateString()) {
-        setCompletedItems(new Set());
-        setFailedItems(new Set());
-        storeTodaySet("completedItems", new Set());
-        storeTodaySet("failedItems", new Set());
+        setProcessedItems(new Set());
+        storeTodaySet("processedItems", new Set());
         setOverrideActivity(null);
       }
+      // === END CHANGE ===
     }, 1000);
     return () => clearInterval(timer);
   }, []);
 
   // --- 3. Core Logic (Routine) ---
   const scheduleData = useMemo(() => {
-    // (Logic ส่วนนี้เหมือนเดิม)
     if (!dailyRoutines || !routineSets || !allActivities) {
       return { current: null, next: null, todaySortedItems: [] };
     }
@@ -197,6 +191,7 @@ function Home() {
     );
     if (!todaySet || todaySet.items.length === 0)
       return { current: null, next: null, todaySortedItems: [] };
+
     const nowInMinutes = currentTime.getHours() * 60 + currentTime.getMinutes();
     const sortedItems = [...todaySet.items].sort((a, b) =>
       a.startTime.localeCompare(b.startTime)
@@ -206,19 +201,21 @@ function Home() {
       startMinutes: timeToMinutes(item.startTime),
       endMinutes: timeToMinutes(item.endTime),
     }));
+
+    // === 5. START CHANGE: อัปเดต Logic การค้นหา ===
     const currentItem = itemsWithMinutes.find(
       (item) =>
         nowInMinutes >= item.startMinutes &&
         nowInMinutes < item.endMinutes &&
-        !completedItems.has(getItemKey(item)) &&
-        !failedItems.has(getItemKey(item))
+        !processedItems.has(getItemKey(item)) // (เช็คแค่ set เดียว)
     );
     const nextItem = itemsWithMinutes.find(
       (item) =>
         item.startMinutes > nowInMinutes &&
-        !completedItems.has(getItemKey(item)) &&
-        !failedItems.has(getItemKey(item))
+        !processedItems.has(getItemKey(item)) // (เช็คแค่ set เดียว)
     );
+    // === END CHANGE ===
+
     let current = null;
     if (currentItem) {
       const activityData = allActivities.find(
@@ -234,94 +231,134 @@ function Home() {
       if (activityData) next = { ...nextItem, ...activityData };
     }
     return { current, next, todaySortedItems: itemsWithMinutes };
-  }, [
-    currentTime,
-    dailyRoutines,
-    routineSets,
-    allActivities,
-    completedItems,
-    failedItems,
-  ]);
+  }, [currentTime, dailyRoutines, routineSets, allActivities, processedItems]); // (อัปเดต dependency)
 
-  // --- 4. Logic ตรวจจับ "Fail" (Routine) ---
+  // === 6. START CHANGE: Logic ตรวจจับ "หมดเวลา" (Routine) ===
   useEffect(() => {
-    // (Logic ส่วนนี้เหมือนเดิม)
     if (
       !allActivities ||
       !penalties ||
       !scheduleData.todaySortedItems ||
-      isProcessing
+      isProcessing ||
+      !user
     ) {
       return;
     }
+
     const nowInMinutes = currentTime.getHours() * 60 + currentTime.getMinutes();
     const items = scheduleData.todaySortedItems;
-    const currentFailedItems = failedItemsRef.current;
-    const itemsToFail = items.filter(
+    const currentProcessedItems = processedItemsRef.current;
+
+    const itemsToProcess = items.filter(
       (item) =>
         nowInMinutes >= item.endMinutes &&
-        !completedItems.has(getItemKey(item)) &&
-        !currentFailedItems.has(getItemKey(item))
+        !currentProcessedItems.has(getItemKey(item))
     );
-    if (itemsToFail.length > 0) {
+
+    if (itemsToProcess.length > 0) {
       setIsProcessing(true);
-      processFailures(itemsToFail);
+      triggerPendingConfirmation(itemsToProcess, "activity"); // (ส่ง Type)
     }
   }, [
     scheduleData.todaySortedItems,
     allActivities,
     penalties,
-    completedItems,
+    processedItems,
     isProcessing,
     currentTime,
+    user,
   ]);
+  // === END CHANGE ===
 
-  // --- 5. ฟังก์ชัน xử lý Fail (Routine) ---
-  const processFailures = async (itemsToFail) => {
-    // (Logic ส่วนนี้เหมือนเดิม)
-    const newFailedKeys = new Set(failedItemsRef.current);
-    for (const item of itemsToFail) {
-      const itemKey = getItemKey(item);
-      const activity = allActivities.find((a) => a.id === item.activityId);
-      if (!activity) continue;
-      const levelDrop = Math.ceil(activity.level / 3);
-      const newLevel = Math.max(0, activity.level - levelDrop);
-      const randomPenalty =
-        penalties.length > 0
-          ? penalties[Math.floor(Math.random() * penalties.length)]
-          : { name: "N/A" };
-      const message = `คุณพลาดกิจกรรม "${activity.name}"`;
-      try {
-        await db.activities.update(activity.id, { level: newLevel });
-        await db.mailbox.add({
-          timestamp: new Date().toISOString(),
-          type: "fail-activity",
-          isRead: 0,
-          message: message,
-          activityName: activity.name,
-          levelDrop: levelDrop,
-          penaltyName: randomPenalty.name,
-          activityStartTime: item.startTime,
-          activityEndTime: item.endTime,
-        });
-        newFailedKeys.add(itemKey);
-      } catch (error) {
-        console.error("Failed to process failure:", error);
-      }
+  // === 7. (ใหม่) Logic ตรวจจับ "หมดเวลา" (Task) ===
+  useEffect(() => {
+    // (เช็ค Task ที่หมดเวลา และยัง active)
+    if (!allTasks || isProcessingTasks || !user) return;
+
+    const now = currentTime.getTime();
+    const tasksToProcess = activeTasks.filter(
+      (task) =>
+        task.type === "quest" && // (Event ไม่ต้องยืนยัน)
+        task.endTime &&
+        now > new Date(task.endTime).getTime() &&
+        task.status === "active"
+    );
+
+    if (tasksToProcess.length > 0) {
+      setIsProcessingTasks(true);
+      triggerPendingConfirmation(tasksToProcess, "task"); // (ส่ง Type)
     }
-    setFailedItems(newFailedKeys);
-    storeTodaySet("failedItems", newFailedKeys);
-    setIsProcessing(false);
-  };
+  }, [activeTasks, currentTime, isProcessingTasks, user]);
 
-  // --- 6. Logic การแสดงผล (Routine) ---
+  // === 8. (อัปเดต) ฟังก์ชัน (รวม Activity และ Task) ===
+  const triggerPendingConfirmation = async (itemsToProcess, type) => {
+    const newProcessedKeys = new Set(processedItemsRef.current);
+
+    if (type === "activity") {
+      for (const item of itemsToProcess) {
+        const itemKey = getItemKey(item);
+        const activity = allActivities.find((a) => a.id === item.activityId);
+        if (!activity) continue;
+
+        const currentActivityLevel = activity.level;
+        const currentUserLevel = user.level;
+        const message = `ยืนยัน: คุณทำ "${activity.name}" สำเร็จหรือไม่?`;
+
+        try {
+          await db.mailbox.add({
+            timestamp: new Date().toISOString(),
+            type: "pending-activity", // (Type ใหม่)
+            isRead: 0,
+            message: message,
+            activityId: activity.id,
+            activityName: activity.name,
+            activityLevel: currentActivityLevel,
+            userLevel: currentUserLevel,
+            activityStartTime: item.startTime,
+            activityEndTime: item.endTime,
+          });
+          newProcessedKeys.add(itemKey);
+        } catch (error) {
+          console.error("Failed to trigger pending activity:", error);
+        }
+      }
+      setProcessedItems(newProcessedKeys);
+      storeTodaySet("processedItems", newProcessedKeys);
+      setIsProcessing(false); // (ปลดล็อก Routine)
+    } else if (type === "task") {
+      for (const task of itemsToProcess) {
+        try {
+          // (อัปเดต status)
+          await db.tasks.update(task.id, { status: "pending" });
+
+          await db.mailbox.add({
+            timestamp: new Date().toISOString(),
+            type: "pending-task", // (Type ใหม่)
+            isRead: 0,
+            message: `ยืนยัน: คุณทำ Task "${task.name}" สำเร็จหรือไม่?`,
+            taskId: task.id,
+            activityName: task.name,
+            taskReward: task.reward,
+            taskPenalty: task.penalty,
+            activityStartTime: task.startTime,
+            activityEndTime: task.endTime,
+          });
+        } catch (error) {
+          console.error("Failed to trigger pending task:", error);
+        }
+      }
+      setIsProcessingTasks(false); // (ปลดล็อก Task)
+    }
+  };
+  // === END CHANGE ===
+
+  // --- 9. Logic การแสดงผล (Routine) ---
   const currentActivity = overrideActivity || scheduleData.current;
   const isResting = !currentActivity;
   const nextActivity = overrideActivity ? null : scheduleData.next;
 
-  // --- 7. Handlers (Routine) ---
+  // --- 10. Handlers (Routine) ---
   const executeDone = async () => {
-    // (Logic ส่วนนี้เหมือนเดิม)
     if (!currentActivity || !user) return;
     const levelForRewardCalc =
       currentActivity.level === 0 ? 1 : currentActivity.level;
@@ -337,11 +374,14 @@ function Home() {
       if (overrideActivity) {
         setOverrideActivity(null);
       }
-      const newCompletedSet = new Set(completedItems).add(
+
+      // === (อัปเดต) 'processedItems' ===
+      const newProcessedSet = new Set(processedItems).add(
         getItemKey(currentActivity)
       );
-      setCompletedItems(newCompletedSet);
-      storeTodaySet("completedItems", newCompletedSet);
+      setProcessedItems(newProcessedSet);
+      storeTodaySet("processedItems", newProcessedSet);
+
       setShowConfirm(false);
       setRewardInfo({
         activityName: currentActivity.name,
@@ -367,7 +407,7 @@ function Home() {
     if (nextActivity) setOverrideActivity(nextActivity);
   };
 
-  // --- 8. Handlers (Task/Quest) ---
+  // (Handlers Task/Quest - เหมือนเดิม)
   const openAddTaskModal = () => {
     setTaskToEdit(null);
     setIsTaskModalOpen(true);
@@ -382,10 +422,9 @@ function Home() {
     setTaskToEdit(null);
   };
 
-  // --- 9. JSX ---
+  // --- 11. JSX (เหมือนเดิม) ---
   return (
     <>
-      {/* ส่วนบน: เวลา (เหมือนเดิม) */}
       <div style={{ textAlign: "center", flexShrink: 0 }}>
         <h2>
           {currentTime.toLocaleTimeString("th-TH", {
@@ -403,7 +442,6 @@ function Home() {
         </p>
       </div>
 
-      {/* ส่วนกลาง: กิจกรรม/พัก (เหมือนเดิม) */}
       <div style={styles.mainBox}>
         {isResting ? (
           <>
@@ -444,7 +482,6 @@ function Home() {
         )}
       </div>
 
-      {/* ส่วน Quest (อัปเดต) */}
       <div style={styles.questSection}>
         <div style={styles.questHeader}>
           <h4>📜 Tasks</h4>
@@ -453,7 +490,6 @@ function Home() {
           </button>
         </div>
 
-        {/* (อัปเดต) แสดงรายการ Tasks ที่จัดเรียงแล้ว */}
         {activeTasks.length > 0 ? (
           activeTasks.map((task) => {
             const now = currentTime;
@@ -468,12 +504,9 @@ function Home() {
             const borderColor = task.type === "quest" ? "#64cfff" : "#c864ff";
 
             if (isExpired) {
-              timeText = `(หมดเวลาแล้ว)`;
-              timeStyle = {
-                ...styles.questItem_span,
-                color: "#ffaaaa",
-                fontWeight: "bold",
-              };
+              // (ถ้าหมดเวลาแล้ว แต่ยัง Active อยู่ = บัค, แต่เราจะซ่อนไว้ก่อน)
+              // (ระบบ Fail Detector จะจัดการเปลี่ยน status)
+              timeText = `(กำลังประมวลผล...)`;
             } else if (hasStarted && endTime) {
               timeText = getQuestCountdown(task.endTime, now);
               timeStyle = {
@@ -497,8 +530,8 @@ function Home() {
                 key={task.id}
                 onClick={() => setSelectedTask(task)}
                 style={{
-                  ...(isExpired ? styles.questItemExpired : styles.questItem),
-                  borderLeftColor: isExpired ? "#ff3b30" : borderColor,
+                  ...styles.questItem, // (แก้)
+                  borderLeftColor: borderColor,
                 }}
               >
                 <p style={styles.questItem_p}>{task.name}</p>
@@ -511,7 +544,7 @@ function Home() {
         )}
       </div>
 
-      {/* Modals ของ Routine (เหมือนเดิม) */}
+      {/* Modals (เหมือนเดิม) */}
       {showConfirm && (
         <div style={styles.modalOverlay}>
           <div style={styles.modalContent}>
@@ -535,8 +568,6 @@ function Home() {
       {rewardInfo && (
         <RewardModal info={rewardInfo} onClose={closeRewardModal} />
       )}
-
-      {/* Modals ใหม่สำหรับ Task (อัปเดต) */}
       {isTaskModalOpen && (
         <TaskModal
           onClose={closeTaskModal}
@@ -544,7 +575,6 @@ function Home() {
           taskToEdit={taskToEdit}
         />
       )}
-
       {selectedTask && (
         <TaskDetailModal
           task={selectedTask}
@@ -557,12 +587,11 @@ function Home() {
   );
 }
 
-// =======================================================
-// === (อัปเดต) Component: Modal สร้าง/แก้ไข Task ===
-// =======================================================
+// (Component 'TaskModal', 'TaskDetailModal', 'RewardModal' ... ทั้งหมดเหมือนเดิม)
+
+// === TaskModal ===
 function TaskModal({ onClose, penalties, taskToEdit }) {
   const isEditMode = !!taskToEdit;
-
   const [name, setName] = useState(taskToEdit?.name || "");
   const [detail, setDetail] = useState(taskToEdit?.detail || "");
   const [startTime, setStartTime] = useState(taskToEdit?.startTime || "");
@@ -571,7 +600,6 @@ function TaskModal({ onClose, penalties, taskToEdit }) {
   const [penaltyText, setPenaltyText] = useState(taskToEdit?.penalty || "");
   const [type, setType] = useState(taskToEdit?.type || "quest");
   const [error, setError] = useState(null);
-
   const handleRandomPenalty = () => {
     if (penalties.length === 0) {
       setPenaltyText("N/A");
@@ -580,24 +608,20 @@ function TaskModal({ onClose, penalties, taskToEdit }) {
     const random = penalties[Math.floor(Math.random() * penalties.length)];
     setPenaltyText(random.name);
   };
-
   const handleSubmit = async () => {
     setError(null);
     if (!name || !startTime) {
       setError("กรุณากรอกชื่อ และ เวลาเริ่ม");
       return;
     }
-
     let finalEndTime = endTime;
     if (type === "event" && endTime === "") {
       finalEndTime = null;
     }
-
     if (type === "quest" && !endTime) {
       setError('"Quest" ต้องมีเวลาหมดเขต');
       return;
     }
-
     if (finalEndTime) {
       const start = new Date(startTime);
       const end = new Date(finalEndTime);
@@ -606,9 +630,7 @@ function TaskModal({ onClose, penalties, taskToEdit }) {
         return;
       }
     }
-
     const reward = type === "quest" ? calculateQuestReward(difficulty) : 0;
-
     let finalPenalty = type === "quest" ? penaltyText.trim() : "N/A";
     if (type === "quest" && finalPenalty === "") {
       const random =
@@ -617,7 +639,6 @@ function TaskModal({ onClose, penalties, taskToEdit }) {
           : { name: "N/A" };
       finalPenalty = random.name;
     }
-
     const taskData = {
       name: name,
       detail: detail,
@@ -629,7 +650,6 @@ function TaskModal({ onClose, penalties, taskToEdit }) {
       status: taskToEdit?.status || "active",
       type: type,
     };
-
     try {
       if (isEditMode) {
         await db.tasks.update(taskToEdit.id, taskData);
@@ -642,7 +662,6 @@ function TaskModal({ onClose, penalties, taskToEdit }) {
       setError("เกิดข้อผิดพลาดในการบันทึก");
     }
   };
-
   return (
     <div style={styles.modalOverlay}>
       <div style={styles.modalContent}>
@@ -652,7 +671,6 @@ function TaskModal({ onClose, penalties, taskToEdit }) {
             <X size={24} />
           </button>
         </div>
-
         <div style={styles.modalForm}>
           <div style={styles.inputGroup}>
             <label>ประเภท</label>
@@ -701,7 +719,6 @@ function TaskModal({ onClose, penalties, taskToEdit }) {
               style={styles.input}
             />
           </div>
-
           {type === "quest" && (
             <>
               <div style={styles.inputGroup}>
@@ -736,14 +753,12 @@ function TaskModal({ onClose, penalties, taskToEdit }) {
               </div>
             </>
           )}
-
           {error && (
             <div style={styles.errorBox}>
               <AlertTriangle size={18} />
               <span>{error}</span>
             </div>
           )}
-
           <button onClick={handleSubmit} style={styles.saveButton}>
             {isEditMode ? <Edit size={18} /> : <Plus size={18} />}
             {isEditMode ? "บันทึกการแก้ไข" : "สร้าง Task"}
@@ -754,9 +769,7 @@ function TaskModal({ onClose, penalties, taskToEdit }) {
   );
 }
 
-// =======================================================
-// === (อัปเดต) Component: Modal ดูรายละเอียด Task ===
-// =======================================================
+// === TaskDetailModal ===
 function TaskDetailModal({ task, onClose, onEdit, user }) {
   const handleTaskAction = async (action) => {
     if (action === "done" && user) {
@@ -784,9 +797,7 @@ function TaskDetailModal({ task, onClose, onEdit, user }) {
       }
     }
   };
-
   const isExpired = task.endTime && new Date() > new Date(task.endTime);
-
   return (
     <div style={styles.modalOverlay}>
       <div style={styles.modalContent}>
@@ -796,11 +807,9 @@ function TaskDetailModal({ task, onClose, onEdit, user }) {
             <X size={24} />
           </button>
         </div>
-
         <div style={styles.modalDetailBody}>
           <p>{task.detail || "ไม่มีรายละเอียด"}</p>
           <hr style={styles.hr} />
-
           {task.type === "quest" && (
             <>
               <div style={styles.rewardInfoBox}>
@@ -820,13 +829,11 @@ function TaskDetailModal({ task, onClose, onEdit, user }) {
               </div>
             </>
           )}
-
           <div style={{ ...styles.rewardInfoBox, color: "#aaa" }}>
             <CalendarClock size={18} />
             <span>เวลาเริ่ม:</span>
             <span>{new Date(task.startTime).toLocaleString("th-TH")}</span>
           </div>
-
           {task.endTime && (
             <div
               style={{
@@ -839,16 +846,13 @@ function TaskDetailModal({ task, onClose, onEdit, user }) {
               <span>{new Date(task.endTime).toLocaleString("th-TH")}</span>
             </div>
           )}
-
-          {isExpired &&
-            task.type === "quest" && ( // (แก้) เฉพาะ Quest ที่โชว์
-              <div style={styles.errorBox}>
-                <AlertTriangle size={18} />
-                <span>เควสนี้หมดเวลาแล้ว</span>
-              </div>
-            )}
+          {isExpired && task.type === "quest" && (
+            <div style={styles.errorBox}>
+              <AlertTriangle size={18} />
+              <span>เควสนี้หมดเวลาแล้ว</span>
+            </div>
+          )}
         </div>
-
         <div style={styles.modalFooter}>
           {task.type === "quest" ? (
             <>
@@ -890,7 +894,7 @@ function TaskDetailModal({ task, onClose, onEdit, user }) {
   );
 }
 
-// (Component 'RewardModal' เหมือนเดิม)
+// === RewardModal ===
 function RewardModal({ info, onClose }) {
   return (
     <div style={styles.modalOverlay} onClick={onClose}>
