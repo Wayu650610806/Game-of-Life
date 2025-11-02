@@ -19,8 +19,12 @@ import DreamListPage from "./pages/DreamListPage";
 import RoutineSetManager from "./pages/RoutineSetManager";
 import RoutineSetEditor from "./pages/RoutineSetEditor";
 import FinanceSummary from "./pages/FinanceSummary";
-// === START CHANGE: IMPORT ไฟล์ใหม่ ===
 import TagManager from "./pages/TagManager";
+import ExercisePage from "./pages/ExercisePage"; // (Baseline)
+
+// === START CHANGE: Food Log Imports ===
+import LogFood from "./pages/LogFood";
+import AddFood from "./pages/AddFood";
 // === END CHANGE ===
 
 function App() {
@@ -80,8 +84,14 @@ function App() {
 
           {/* Finance Sub Pages */}
           <Route path="finance-summary" element={<FinanceSummary />} />
-          {/* === START CHANGE: ADD Route ใหม่สำหรับ Tags === */}
           <Route path="tag-manager" element={<TagManager />} />
+
+          {/* Health Sub Pages */}
+          <Route path="exercise" element={<ExercisePage />} />
+
+          {/* === START CHANGE: Food Log Routes === */}
+          <Route path="log-food" element={<LogFood />} />
+          <Route path="add-food" element={<AddFood />} />
           {/* === END CHANGE === */}
 
           <Route path="*" element={<Navigate to="/" replace />} />

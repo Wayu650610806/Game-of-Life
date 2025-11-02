@@ -3,27 +3,30 @@ import React from "react";
 import { Link } from "react-router-dom";
 import { Menu, Mail, Coins } from "lucide-react";
 import { useLiveQuery } from "dexie-react-hooks";
-import { db } from "../../db"; // <-- 1. IMPORT db
+import { db } from "../../db";
 
 function Header({ user, onMenuClick }) {
-  // 2. ดึงข้อมูล "สด" ของผู้ใช้ (สำหรับเงิน)
   const liveUser = useLiveQuery(() => db.userProfile.get(user.id), [user.id]);
 
-  // === 3. START CHANGE: นับข้อความที่ยังไม่อ่าน ===
   const unreadCount = useLiveQuery(
     () => db.mailbox.where("isRead").equals(0).count(),
-    0 // ค่าเริ่มต้นคือ 0
+    0
   );
-  // === END CHANGE ===
 
   const currentUser = liveUser || user;
 
   return (
     <header style={styles.header}>
       <div className="header-left">
-        <button onClick={onMenuClick} style={styles.iconButton}>
+        {/* === START CHANGE === */}
+        <button
+          onClick={onMenuClick}
+          style={styles.iconButton}
+          aria-label="เมนู"
+        >
           <Menu size={28} />
         </button>
+        {/* === END CHANGE === */}
       </div>
 
       <div className="header-center">
@@ -34,16 +37,18 @@ function Header({ user, onMenuClick }) {
       </div>
 
       <div style={styles.headerRight}>
-        {/* === START CHANGE: ใช้ style จาก object === */}
         <Link to="/shop" style={styles.moneyLink}>
           <Coins size={20} color="#FFD700" />
           <span>{currentUser.money}</span>
         </Link>
 
-        {/* 4. ใส่จุดแดง */}
-        <Link to="/mailbox" style={styles.mailLink}>
+        {/* === START CHANGE === */}
+        <Link to="/mailbox" style={styles.mailLink} aria-label="กล่องจดหมาย">
           <Mail size={24} />
-          {unreadCount > 0 && <span style={styles.notificationDot}></span>}
+          {unreadCount > 0 && (
+            // (aria-hidden=true บอก Screen Reader ว่า "ไม่ต้องอ่านจุดนี้")
+            <span style={styles.notificationDot} aria-hidden="true"></span>
+          )}
         </Link>
         {/* === END CHANGE === */}
       </div>
@@ -51,7 +56,7 @@ function Header({ user, onMenuClick }) {
   );
 }
 
-// === 5. START CHANGE: เพิ่ม CSS Styles Object ===
+// (CSS Styles ... เหมือนเดิม)
 const styles = {
   header: {
     flexShrink: 0,
@@ -71,7 +76,7 @@ const styles = {
     color: "white",
     padding: 0,
     cursor: "pointer",
-    display: "flex", // ช่วยจัด alignment
+    display: "flex",
   },
   headerCenter: {
     flexGrow: 1,
@@ -106,26 +111,23 @@ const styles = {
     alignItems: "center",
     gap: "4px",
   },
-  // Style สำหรับไอคอน Mail
   mailLink: {
-    position: "relative", // (สำคัญ) เพื่อให้จุดแดงลอยทับได้
+    position: "relative",
     color: "white",
     padding: 0,
-    lineHeight: 0, // ช่วยจัด alignment
+    lineHeight: 0,
     display: "flex",
   },
-  // Style สำหรับจุดแดง
   notificationDot: {
     position: "absolute",
     top: "-3px",
     right: "-3px",
     width: "10px",
     height: "10px",
-    backgroundColor: "#ff3b30", // สีแดงสด
+    backgroundColor: "#ff3b30",
     borderRadius: "50%",
-    border: "2px solid #333", // ขอบสีเดียวกับพื้นหลัง
+    border: "2px solid #333",
   },
 };
-// === END CHANGE ===
 
 export default Header;

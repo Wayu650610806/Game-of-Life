@@ -3,7 +3,7 @@ import React, { useState, useMemo } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { db, calculateLevel } from "../db";
 import { Link } from "react-router-dom";
-import { Edit, Save, X, ChevronRight, Trash2 } from "lucide-react"; // <-- 1. IMPORT Trash2
+import { Edit, Save, X, ChevronRight, Trash2 } from "lucide-react";
 
 // === React Component ===
 function Profile() {
@@ -25,6 +25,7 @@ function Profile() {
       setIsEditing(true);
     }
   };
+
   const handleSaveProfile = async () => {
     if (!editName || !editBirthday) return alert("กรุณากรอกข้อมูลให้ครบถ้วน");
     const newLevel = calculateLevel(editBirthday);
@@ -40,6 +41,14 @@ function Profile() {
     }
   };
 
+  const handleCancel = () => {
+    if (user) {
+      setEditName(user.name);
+      setEditBirthday(user.birthday);
+    }
+    setIsEditing(false);
+  };
+
   // --- 4. Logic Dream List ---
   const { completedCount, totalCount } = useMemo(() => {
     if (!allDreams) return { completedCount: 0, totalCount: 0 };
@@ -47,33 +56,26 @@ function Profile() {
     return { completedCount: completed, totalCount: allDreams.length };
   }, [allDreams]);
 
-  // === 5. START CHANGE: Logic ลบ Activity ===
+  // --- 5. Logic ลบ Activity ---
   const handleDeleteActivity = async (id, name) => {
     if (!window.confirm(`คุณแน่ใจหรือไม่ว่าต้องการลบกิจกรรม "${name}"?`)) {
       return;
     }
-
     try {
-      // 1. ตรวจสอบว่ามี Routine Set ไหนใช้อยู่หรือไม่
       const setsUsingThis = await db.routineSets
         .filter((set) => set.items.some((item) => item.activityId === id))
         .toArray();
-
       if (setsUsingThis.length > 0) {
-        // 2. ถ้ามีคนใช้ ให้แจ้งเตือนและไม่ลบ
         const setNames = setsUsingThis.map((s) => s.name).join(", ");
         alert(`ไม่สามารถลบได้: กิจกรรมนี้ถูกใช้งานใน Routine Set: ${setNames}`);
         return;
       }
-
-      // 3. ถ้าไม่มีคนใช้ ลบได้เลย
       await db.activities.delete(id);
     } catch (error) {
       console.error("Failed to delete activity:", error);
       alert("เกิดข้อผิดพลาดในการลบ");
     }
   };
-  // === END CHANGE ===
 
   if (!user) {
     return <div>กำลังโหลดข้อมูลโปรไฟล์...</div>;
@@ -84,7 +86,6 @@ function Profile() {
       {/* --- ส่วนที่ 1: ข้อมูลโปรไฟล์ --- */}
       <div style={styles.section}>
         <h2 style={styles.sectionTitle}>โปรไฟล์</h2>
-        {/* (โค้ดส่วนนี้เหมือนเดิม) */}
         {!isEditing ? (
           <div style={styles.profileView}>
             <div style={styles.profileInfo}>
@@ -123,10 +124,7 @@ function Profile() {
               />
             </div>
             <div style={styles.buttonGroup}>
-              <button
-                onClick={() => setIsEditing(false)}
-                style={styles.cancelButton}
-              >
+              <button onClick={handleCancel} style={styles.cancelButton}>
                 <X size={18} /> ยกเลิก
               </button>
               <button onClick={handleSaveProfile} style={styles.saveButton}>
@@ -137,7 +135,7 @@ function Profile() {
         )}
       </div>
 
-      {/* --- ส่วนที่ 2: Dream List (เหมือนเดิม) --- */}
+      {/* --- ส่วนที่ 2: Dream List --- */}
       <Link to="/dreams" style={styles.dreamLink}>
         <div style={styles.section} className="dream-list-link">
           <div style={styles.sectionHeader}>
@@ -155,7 +153,6 @@ function Profile() {
         <div style={styles.activityList}>
           {allActivities && allActivities.length > 0 ? (
             allActivities.map((activity) => (
-              // === START CHANGE: เพิ่มปุ่มลบ ===
               <div key={activity.id} style={styles.activityItem}>
                 <div style={styles.activityItemInfo}>
                   <span>{activity.name}</span>
@@ -172,7 +169,6 @@ function Profile() {
                   <Trash2 size={18} />
                 </button>
               </div>
-              // === END CHANGE ===
             ))
           ) : (
             <p style={styles.emptyText}>ยังไม่มีกิจกรรม</p>
@@ -183,7 +179,7 @@ function Profile() {
   );
 }
 
-// === CSS Styles Object (อัปเดต) ===
+// === CSS Styles Object (เหมือนเดิม) ===
 const styles = {
   page: {
     padding: "10px",
@@ -193,11 +189,6 @@ const styles = {
     borderRadius: "8px",
     padding: "15px",
     marginBottom: "15px",
-    transition: "background-color 0.2s",
-  },
-  dreamLink: {
-    textDecoration: "none",
-    color: "inherit",
   },
   sectionHeader: {
     display: "flex",
@@ -223,11 +214,13 @@ const styles = {
     padding: "8px",
     borderRadius: "5px",
     cursor: "pointer",
+    display: "flex",
   },
   profileEdit: {
     display: "flex",
     flexDirection: "column",
     gap: "15px",
+    paddingTop: "15px",
   },
   inputGroup: {
     display: "flex",
@@ -248,6 +241,7 @@ const styles = {
     display: "flex",
     gap: "10px",
     justifyContent: "flex-end",
+    marginTop: "10px",
   },
   saveButton: {
     background: "#646cff",
@@ -271,6 +265,10 @@ const styles = {
     alignItems: "center",
     gap: "5px",
   },
+  dreamLink: {
+    textDecoration: "none",
+    color: "inherit",
+  },
   activityList: {
     display: "flex",
     flexDirection: "column",
@@ -286,7 +284,6 @@ const styles = {
     padding: "10px",
     borderRadius: "5px",
   },
-  // === START CHANGE: CSS สำหรับส่วน Activity Item ===
   activityItemInfo: {
     display: "flex",
     flexDirection: "column",
@@ -304,7 +301,6 @@ const styles = {
     padding: "5px",
     flexShrink: 0,
   },
-  // === END CHANGE ===
   emptyText: {
     color: "#888",
     textAlign: "center",
