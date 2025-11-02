@@ -2,7 +2,6 @@
 import React, { useEffect } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { db } from "../db";
-// === 1. START CHANGE: Import ไอคอนใหม่ ===
 import {
   Trash2,
   AlertTriangle,
@@ -13,9 +12,8 @@ import {
   HelpCircle,
   PartyPopper,
 } from "lucide-react";
-// === END CHANGE ===
 
-// (Helper Function)
+// === (ใหม่) Helper Function (คัดลอกมาจาก Home.jsx) ===
 const getRewardMultiplier = (activityLevel) => {
   const baseMin = 10;
   const baseMax = 15;
@@ -33,10 +31,10 @@ function Mailbox() {
     () => db.mailbox.orderBy("timestamp").reverse().toArray(),
     []
   );
-  // (ใหม่) ดึงข้อมูลที่จำเป็นสำหรับ Logic
   const user = useLiveQuery(() => db.userProfile.toCollection().first());
-  const penalties = useLiveQuery(() => db.penalties.toArray());
-  const activities = useLiveQuery(() => db.activities.toArray());
+  const penalties = useLiveQuery(() => db.penalties.toArray(), []);
+
+  // (เราไม่จำเป็นต้องดึง activities/habits ที่นี่ เพราะข้อมูลถูกเก็บใน msg แล้ว)
 
   // 2. (อัปเดต) มาร์คว่าอ่านแล้ว
   useEffect(() => {
@@ -56,12 +54,10 @@ function Mailbox() {
         console.error("Failed to mark messages as read:", error);
       }
     };
-
-    // (หน่วงเวลาเล็กน้อย)
     setTimeout(markAllAsRead, 1000);
   }, []);
 
-  // === 3. (ใหม่) Logic ปุ่มกดยืนยัน ===
+  // === 3. (อัปเดต) Logic ปุ่มกดยืนยัน ===
 
   // 3a. กดยืนยัน (สำเร็จ)
   const handleConfirm = async (msg) => {
@@ -70,10 +66,6 @@ function Mailbox() {
     try {
       if (msg.type === "pending-activity") {
         // --- สำเร็จ (Activity) ---
-        // (Logic คัดลอกมาจาก Home.jsx)
-        const activity = activities.find((a) => a.id === msg.activityId);
-        if (!activity) throw new Error("Activity not found");
-
         const levelForRewardCalc =
           msg.activityLevel === 0 ? 1 : msg.activityLevel;
         const cappedLevel = Math.min(30, levelForRewardCalc);
@@ -82,15 +74,13 @@ function Mailbox() {
         const newLevel = msg.activityLevel + 1;
         const newMoney = user.money + reward;
 
-        // อัปเดต DB
         await db.activities.update(msg.activityId, { level: newLevel });
         await db.userProfile.update(user.id, { money: newMoney });
 
-        // อัปเดต Mailbox
         await db.mailbox.update(msg.id, {
           type: "success-log",
           message: `(สำเร็จ) ${msg.activityName}`,
-          levelDrop: -1, // (เครื่องหมายว่า Level Up)
+          levelDrop: -1,
           penaltyName: `+${reward} Coins`,
         });
       } else if (msg.type === "pending-task") {
@@ -98,7 +88,6 @@ function Mailbox() {
         const newMoney = user.money + msg.taskReward;
         await db.userProfile.update(user.id, { money: newMoney });
 
-        // อัปเดต Mailbox
         await db.mailbox.update(msg.id, {
           type: "success-log",
           message: `(สำเร็จ) ${msg.activityName}`,
@@ -106,6 +95,29 @@ function Mailbox() {
           penaltyName: `+${msg.taskReward} Coins`,
         });
       }
+      // === (ใหม่) ===
+      else if (msg.type === "pending-habit") {
+        // --- สำเร็จ (Habit) ---
+        const newLevel = msg.habitLevel + 1;
+
+        // (คำนวณรางวัลเหมือน Activity)
+        const levelForRewardCalc = newLevel === 0 ? 1 : newLevel;
+        const cappedLevel = Math.min(30, levelForRewardCalc);
+        const multiplier = getRewardMultiplier(newLevel);
+        const reward = cappedLevel * multiplier;
+        const newMoney = user.money + reward;
+
+        await db.badHabits.update(msg.habitId, { level: newLevel });
+        await db.userProfile.update(user.id, { money: newMoney });
+
+        await db.mailbox.update(msg.id, {
+          type: "success-log",
+          message: `(สำเร็จ) ${msg.activityName}`,
+          levelDrop: -1, // (Level Up)
+          penaltyName: `+${reward} Coins`,
+        });
+      }
+      // === END (ใหม่) ===
     } catch (error) {
       console.error("Failed to confirm success:", error);
       alert("เกิดข้อผิดพลาด: " + error.message);
@@ -114,25 +126,21 @@ function Mailbox() {
 
   // 3b. กดยอมรับ (ไม่สำเร็จ)
   const handleReject = async (msg) => {
-    if (!penalties || !activities) return;
+    if (!penalties) return;
 
     try {
+      const randomPenalty =
+        penalties.length > 0
+          ? penalties[Math.floor(Math.random() * penalties.length)]
+          : { name: "N/A" };
+
       if (msg.type === "pending-activity") {
         // --- ไม่สำเร็จ (Activity) ---
-        const activity = activities.find((a) => a.id === msg.activityId);
-        if (!activity) throw new Error("Activity not found");
-
         const levelDrop = Math.ceil(msg.activityLevel / 3);
         const newLevel = Math.max(0, msg.activityLevel - levelDrop);
-        const randomPenalty =
-          penalties.length > 0
-            ? penalties[Math.floor(Math.random() * penalties.length)]
-            : { name: "N/A" };
 
-        // อัปเดต DB
         await db.activities.update(msg.activityId, { level: newLevel });
 
-        // อัปเดต Mailbox
         await db.mailbox.update(msg.id, {
           type: "fail-log",
           message: `(ไม่สำเร็จ) ${msg.activityName}`,
@@ -141,33 +149,48 @@ function Mailbox() {
         });
       } else if (msg.type === "pending-task") {
         // --- ไม่สำเร็จ (Task) ---
-        // (ไม่ลดเลเวล แต่ใช้ Penalty ที่เก็บมา)
         await db.mailbox.update(msg.id, {
           type: "fail-log",
           message: `(ไม่สำเร็จ) ${msg.activityName}`,
           levelDrop: 0,
-          penaltyName: msg.taskPenalty,
+          penaltyName: msg.taskPenalty, // (ใช้ Penalty ที่ตั้งไว้)
         });
       }
+      // === (ใหม่) ===
+      else if (msg.type === "pending-habit") {
+        // --- ไม่สำเร็จ (Habit) ---
+        const levelDropped = msg.habitLevel; // (ตกจาก Level ที่ทำมา)
+
+        await db.badHabits.update(msg.habitId, {
+          level: 0,
+          lastFailedTimestamp: msg.timestamp, // (ใช้วันที่ของ Log)
+        });
+
+        await db.mailbox.update(msg.id, {
+          type: "fail-log",
+          message: `(ไม่สำเร็จ) ${msg.activityName}`,
+          levelDrop: levelDropped, // (รีเซ็ต)
+          penaltyName: randomPenalty.name,
+        });
+      }
+      // === END (ใหม่) ===
     } catch (error) {
       console.error("Failed to confirm failure:", error);
       alert("เกิดข้อผิดพลาด: " + error.message);
     }
   };
 
-  // 3c. ลบข้อความ
+  // (Handlers 'handleDelete', 'handleClearAll' ... เหมือนเดิม)
   const handleDelete = async (id) => {
     await db.mailbox.delete(id);
   };
-
-  // 3d. ลบทั้งหมด
   const handleClearAll = async () => {
     if (window.confirm('คุณต้องการลบข้อความ "ที่อ่านแล้ว" ทั้งหมดหรือไม่?')) {
-      // (ลบเฉพาะ Log, ไม่ลบ Pending)
       await db.mailbox
         .where("type")
         .notEqual("pending-activity")
         .and((item) => item.type !== "pending-task")
+        .and((item) => item.type !== "pending-habit") // (ใหม่)
         .delete();
     }
   };
@@ -175,14 +198,20 @@ function Mailbox() {
   // (Helper สำหรับแสดงผล)
   const renderMessageContent = (msg) => {
     // 1. ถ้าเป็น "รอยืนยัน" (Pending)
-    if (msg.type === "pending-activity" || msg.type === "pending-task") {
+    if (msg.type.startsWith("pending-")) {
       return (
         <>
           <strong style={styles.messageTitlePending}>{msg.message}</strong>
           <span style={styles.messageTime}>
-            (กิจกรรมเวลา: {msg.activityStartTime} - {msg.activityEndTime})
+            (
+            {msg.type === "pending-habit"
+              ? `สำหรับวันที่: ${new Date(msg.timestamp).toLocaleDateString(
+                  "th-TH"
+                )}`
+              : `เวลา: ${msg.activityStartTime} - ${msg.activityEndTime}`}
+            )
           </span>
-          {/* (ใหม่) ปุ่มกด */}
+          {/* (ปุ่มกด) */}
           <div style={styles.actionButtons}>
             <button
               onClick={() => handleConfirm(msg)}
@@ -213,16 +242,14 @@ function Mailbox() {
           {msg.message}
         </strong>
         {isSuccess ? (
-          // (Log สำเร็จ)
           <span style={styles.messageDetail}>
             {msg.levelDrop === -1 ? `(Level Up!)` : ""} {msg.penaltyName}
           </span>
         ) : (
-          // (Log ล้มเหลว)
           <>
             {msg.levelDrop > 0 && (
               <span style={styles.messageDetail}>
-                {msg.activityName} (ลด {msg.levelDrop} LV)
+                {msg.activityName} (รีเซ็ต {msg.levelDrop} LV)
               </span>
             )}
             <span style={styles.messageDetail}>บทลงโทษ: {msg.penaltyName}</span>
@@ -278,17 +305,19 @@ function Mailbox() {
                 )}
               </div>
 
-              {/* (เนื้อหา + ปุ่ม) */}
               <div style={styles.messageContent}>
                 {renderMessageContent(msg)}
               </div>
 
-              <button
-                onClick={() => handleDelete(msg.id)}
-                style={styles.deleteButton}
-              >
-                <Trash2 size={18} />
-              </button>
+              {/* (ปุ่มลบ จะไม่โชว์ถ้ายัง Pending) */}
+              {!msg.type.includes("pending") && (
+                <button
+                  onClick={() => handleDelete(msg.id)}
+                  style={styles.deleteButton}
+                >
+                  <Trash2 size={18} />
+                </button>
+              )}
             </div>
           ))
         )}
@@ -340,7 +369,7 @@ const styles = {
     padding: "10px",
     borderRadius: "8px",
     transition: "background-color 0.3s",
-    borderLeft: "4px solid", // (ใหม่)
+    borderLeft: "4px solid",
   },
   messageIcon: {
     padding: "5px",
@@ -349,7 +378,7 @@ const styles = {
   messageContent: {
     display: "flex",
     flexDirection: "column",
-    gap: "5px", // (เพิ่ม Gap)
+    gap: "5px",
     flexGrow: 1,
   },
   messageTime: {
@@ -381,9 +410,8 @@ const styles = {
     color: "#888",
     cursor: "pointer",
     padding: "5px",
-    alignSelf: "flex-start", // (ใหม่)
+    alignSelf: "flex-start",
   },
-  // (ใหม่) Action Buttons
   actionButtons: {
     display: "flex",
     gap: "10px",

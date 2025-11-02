@@ -1,17 +1,17 @@
 // src/App.jsx
 import React, { useState, useEffect } from "react";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
-// === 1. START CHANGE: (ย้ายกลับมา) Import ฟังก์ชันจาก db.js ===
 import { db, populateInitialExercises } from "./db";
-// === END CHANGE ===
 
-// (Imports ... ทั้งหมดเหมือนเดิม)
+// Layout & Pages
 import MainLayout from "./components/layout/MainLayout";
 import Onboarding from "./components/Onboarding";
 import Home from "./pages/Home";
 import Profile from "./pages/Profile";
 import EditRoutine from "./pages/EditRoutine";
-import Penalty from "./pages/Penalty";
+// === 1. START CHANGE: เปลี่ยน Penalty -> Discipline ===
+import DisciplinePage from "./pages/DisciplinePage"; // (ชื่อใหม่)
+// === END CHANGE ===
 import Mailbox from "./pages/Mailbox";
 import Shop from "./pages/Shop";
 import Health from "./pages/Health";
@@ -35,10 +35,7 @@ function App() {
   useEffect(() => {
     const checkUser = async () => {
       try {
-        // === 2. START CHANGE: (ย้ายกลับมา) เรียกใช้ฟังก์ชันนี้ ===
         await populateInitialExercises();
-        // === END CHANGE ===
-
         const user = await db.userProfile.toCollection().first();
         setUserProfile(user || null);
       } catch (error) {
@@ -66,15 +63,23 @@ function App() {
         <Route path="/" element={<MainLayout user={userProfile} />}>
           <Route index element={<Home />} />
 
-          {/* (Routes ... ทั้งหมดเหมือนเดิม) */}
+          {/* Footer Tabs */}
           <Route path="amway" element={<Amway />} />
           <Route path="health" element={<Health />} />
           <Route path="finance" element={<Finance />} />
           <Route path="profile" element={<Profile />} />
+
+          {/* Slide Menu */}
           <Route path="edit-routine" element={<EditRoutine />} />
-          <Route path="penalty" element={<Penalty />} />
+          {/* === 2. START CHANGE: เปลี่ยน Route === */}
+          <Route path="discipline" element={<DisciplinePage />} />
+          {/* === END CHANGE === */}
+
+          {/* Header */}
           <Route path="mailbox" element={<Mailbox />} />
           <Route path="shop" element={<Shop />} />
+
+          {/* (Routes ที่เหลือ ... เหมือนเดิม) */}
           <Route path="dreams" element={<DreamListPage />} />
           <Route path="routine-set-manager" element={<RoutineSetManager />} />
           <Route

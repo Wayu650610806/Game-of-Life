@@ -14,8 +14,7 @@ import {
   HelpCircle,
 } from "lucide-react";
 
-// === 1. START CHANGE: (คืนชีพ) สูตรคำนวณราคาเดิม ===
-// (สูตรนี้จะคำนวณ "Game Coins" ไม่เกี่ยวกับงบประมาณ)
+// === 1. (คืนชีพ) สูตรคำนวณราคา (Game Coins) ===
 const calculatePrice = (rank) => {
   // โดย x = random(3100-5100)
   const x = Math.floor(Math.random() * (5100 - 3100 + 1)) + 3100;
@@ -30,14 +29,14 @@ const calculatePrice = (rank) => {
     case "4":
       return 365 * x; // 1 ปี
     case "5":
-      return 730 * x; // 2 ปี (730 วัน)
+      return 730 * x; // > 1 ปี (ใช้ 2 ปี)
     default:
       return 9999999;
   }
 };
-// === END CHANGE ===
+// === END ===
 
-// (Helper Function 'getRankName', 'getRankColor' เหมือนเดิม)
+// (Helper Function 'getRankName', 'getRankColor' ... เหมือนเดิม)
 const getRankName = (rank) => {
   switch (String(rank)) {
     case "1":
@@ -71,24 +70,56 @@ const getRankColor = (rank) => {
   }
 };
 
+// === 2. (ใหม่) Helper Function: คำนวณ Rank ของ Dream ===
+const getDreamRank = (targetDate) => {
+  if (!targetDate) return 1; // (ไม่มีเป้าหมาย = Rank ต่ำสุด)
+
+  const now = new Date();
+  const target = new Date(targetDate);
+  const diffInMs = target.getTime() - now.getTime();
+  const diffInDays = Math.ceil(diffInMs / (1000 * 60 * 60 * 24));
+
+  if (diffInDays <= 7) return 1;
+  if (diffInDays <= 30) return 2;
+  if (diffInDays <= 182) return 3; // (~6 เดือน)
+  if (diffInDays <= 365) return 4;
+  return 5; // (> 1 ปี)
+};
+
 // === Main Component ===
 function Shop() {
   const [currentTab, setCurrentTab] = useState("items");
-  const [confirmBuy, setConfirmBuy] = useState(null);
+  // (อัปเดต) เปลี่ยนชื่อ State ให้รองรับ 2 แบบ
+  const [confirmingItem, setConfirmingItem] = useState(null); // { type, data }
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [itemToEdit, setItemToEdit] = useState(null);
 
+  // --- 3. (อัปเดต) ดึงข้อมูล ---
   const user = useLiveQuery(() => db.userProfile.toCollection().first());
   const shopItems = useLiveQuery(() => db.shopItems.toArray(), []);
-
-  // === 2. (ใหม่) ดึงข้อมูลงบประมาณ "รางวัล" ===
-  // (ข้อมูลนี้จะถูกส่งไปให้ Modal เพื่อ "แนะนำ" เท่านั้น)
-  const rewardsBudget = useLiveQuery(
-    () => db.budgets.where("name").equals("rewards").first(),
+  // (ใหม่) ดึง Dreams ที่ยังไม่สำเร็จ
+  const incompleteDreams = useLiveQuery(
+    () => db.dreams.where("status").equals("incomplete").toArray(),
     []
   );
 
-  // (ฟังก์ชัน 'handleBuyItem', 'handleDeleteItem' ... เหมือนเดิม)
+  // === 4. (ใหม่) Memo: สร้าง "Dream Shop" ===
+  const dreamShopItems = useMemo(() => {
+    if (!incompleteDreams) return [];
+
+    return incompleteDreams.map((dream) => {
+      const rank = getDreamRank(dream.targetDate);
+      const price = calculatePrice(rank); // (ใช้สูตร Game Coins)
+      return {
+        ...dream, // id, name, imageUrl, targetDate...
+        rank: rank,
+        price: price,
+      };
+    });
+  }, [incompleteDreams]);
+  // === END CHANGE ===
+
+  // (ฟังก์ชัน 'handleBuyItem' ... เหมือนเดิม)
   const handleBuyItem = async (item) => {
     if (!user || user.money < item.price) {
       alert("มีเงินไม่พอ!");
@@ -100,12 +131,45 @@ function Shop() {
       });
       await db.shopItems.delete(item.id);
       alert(`ซื้อ ${item.name} สำเร็จ!`);
-      setConfirmBuy(null);
+      setConfirmingItem(null); // (อัปเดต State)
     } catch (error) {
       console.error("Failed to buy item:", error);
       alert("เกิดข้อผิดพลาดในการซื้อ");
     }
   };
+
+  // === 5. (ใหม่) ฟังก์ชัน: ซื้อ Dream ===
+  const handleBuyDream = async (dream) => {
+    if (!user || user.money < dream.price) {
+      alert("มีเงินไม่พอ!");
+      return;
+    }
+    if (
+      !window.confirm(
+        `การซื้อ Dream นี้จะถือว่า "สำเร็จ" ทันที\nคุณต้องการซื้อ "${dream.name}" หรือไม่?`
+      )
+    ) {
+      return;
+    }
+
+    try {
+      // 1. หักเงิน
+      await db.userProfile.update(user.id, {
+        money: user.money - dream.price,
+      });
+      // 2. อัปเดต Dream เป็น 'complete'
+      await db.dreams.update(dream.id, { status: "complete" });
+
+      alert(`ยินดีด้วย! คุณบรรลุความฝัน "${dream.name}" แล้ว!`);
+      setConfirmingItem(null); // (อัปเดต State)
+    } catch (error) {
+      console.error("Failed to buy dream:", error);
+      alert("เกิดข้อผิดพลาดในการซื้อ");
+    }
+  };
+  // === END CHANGE ===
+
+  // (ฟังก์ชัน 'handleDeleteItem' ... เหมือนเดิม)
   const handleDeleteItem = async (id, name) => {
     if (
       window.confirm(`คุณแน่ใจหรือไม่ว่าต้องการลบ "${name}" ออกจากร้านค้า?`)
@@ -118,6 +182,8 @@ function Shop() {
       }
     }
   };
+
+  // (ฟังก์ชัน Modal ... เหมือนเดิม)
   const handleOpenEditModal = (item) => {
     setItemToEdit(item);
     setIsAddModalOpen(true);
@@ -131,15 +197,17 @@ function Shop() {
     setItemToEdit(null);
   };
 
-  // (JSX หน้าหลัก ... เหมือนเดิม)
   return (
     <div style={styles.page}>
       <div style={styles.header}>
         <h2>ร้านค้า</h2>
-        <button onClick={handleOpenAddModal} style={styles.addButton}>
-          <Plus size={20} />
-          <span>เพิ่มของ</span>
-        </button>
+        {/* === 6. (อัปเดต) ซ่อนปุ่ม Add ถ้าอยู่แท็บ Dreams === */}
+        {currentTab === "items" && (
+          <button onClick={handleOpenAddModal} style={styles.addButton}>
+            <Plus size={20} />
+            <span>เพิ่มของ</span>
+          </button>
+        )}
       </div>
 
       <div style={styles.tabs}>
@@ -180,7 +248,6 @@ function Shop() {
                       {getRankName(item.rank)}
                     </p>
                     <p style={styles.itemDetail}>{item.detail}</p>
-
                     <div style={styles.adminBar}>
                       <button
                         onClick={() => handleOpenEditModal(item)}
@@ -195,7 +262,6 @@ function Shop() {
                         <Trash2 size={16} />
                       </button>
                     </div>
-
                     <div style={styles.itemFooter}>
                       <span style={styles.itemPrice}>
                         <Coins size={16} color="#FFD700" />
@@ -203,7 +269,10 @@ function Shop() {
                       </span>
                       <button
                         style={styles.buyButton}
-                        onClick={() => setConfirmBuy(item)}
+                        // (อัปเดต)
+                        onClick={() =>
+                          setConfirmingItem({ type: "item", data: item })
+                        }
                         disabled={user && user.money < item.price}
                       >
                         ซื้อ
@@ -220,14 +289,66 @@ function Shop() {
           </div>
         )}
 
+        {/* === 7. (ใหม่) Render "ร้านค้าความฝัน" === */}
         {currentTab === "dreams" && (
-          <div style={styles.emptyText}>
-            <p>
-              <strong>ร้านค้าความฝัน (Dream Shop)</strong>
-            </p>
-            <p>ส่วนนี้ยังอยู่ระหว่างการพัฒนาครับ</p>
+          <div style={styles.itemGrid}>
+            {dreamShopItems && dreamShopItems.length > 0 ? (
+              dreamShopItems.map((item) => (
+                <div key={item.id} style={styles.itemCard}>
+                  <img
+                    src={item.imageUrl || "https://via.placeholder.com/150"}
+                    alt={item.name}
+                    style={styles.itemImage}
+                  />
+                  <div style={styles.itemInfo}>
+                    <h4 style={styles.itemName}>{item.name}</h4>
+                    <p
+                      style={{
+                        ...styles.itemRank,
+                        color: getRankColor(item.rank),
+                        borderColor: getRankColor(item.rank),
+                      }}
+                    >
+                      {getRankName(item.rank)}
+                    </p>
+                    {/* (แสดงผล % ที่คำนวณ Rank) */}
+                    <p style={styles.itemDetail}>
+                      เป้าหมาย:{" "}
+                      {getDreamRank(item.targetDate) <= 1
+                        ? "< 7 วัน"
+                        : getDreamRank(item.targetDate) === 2
+                        ? "< 30 วัน"
+                        : "..."}
+                    </p>
+
+                    {/* (ไม่มี Admin Bar) */}
+
+                    <div style={styles.itemFooter}>
+                      <span style={styles.itemPrice}>
+                        <Coins size={16} color="#FFD700" />
+                        {item.price.toLocaleString()}
+                      </span>
+                      <button
+                        style={styles.buyButton}
+                        onClick={() =>
+                          setConfirmingItem({ type: "dream", data: item })
+                        }
+                        disabled={user && user.money < item.price}
+                      >
+                        บรรลุ
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ))
+            ) : (
+              <p style={styles.emptyText}>
+                คุณไม่มีความฝันที่ยังไม่สำเร็จใน Dream List
+              </p>
+            )}
           </div>
         )}
+        {/* === END CHANGE === */}
       </div>
 
       {/* --- (อัปเดต) Modals --- */}
@@ -235,16 +356,19 @@ function Shop() {
         <AddShopItemModal
           onClose={handleCloseModal}
           itemToEdit={itemToEdit}
-          rewardsBudget={rewardsBudget} // (ส่งงบประมาณไป)
+          // (ลบ) rewardsBudget
         />
       )}
 
-      {confirmBuy && (
+      {/* (อัปเดต) Modal ยืนยัน (ใช้ Logic ใหม่) */}
+      {confirmingItem && (
         <ConfirmBuyModal
-          item={confirmBuy}
+          item={confirmingItem.data}
           user={user}
-          onClose={() => setConfirmBuy(null)}
-          onConfirm={handleBuyItem}
+          onClose={() => setConfirmingItem(null)}
+          onConfirm={
+            confirmingItem.type === "dream" ? handleBuyDream : handleBuyItem
+          }
         />
       )}
     </div>
@@ -254,7 +378,7 @@ function Shop() {
 // =======================================================
 // === (อัปเดต) Component ย่อย: Modal เพิ่ม/แก้ไข ไอเทม ===
 // =======================================================
-function AddShopItemModal({ onClose, itemToEdit, rewardsBudget }) {
+function AddShopItemModal({ onClose, itemToEdit }) {
   const isEditMode = !!itemToEdit;
   const [name, setName] = useState(itemToEdit?.name || "");
   const [detail, setDetail] = useState(itemToEdit?.detail || "");
@@ -262,27 +386,7 @@ function AddShopItemModal({ onClose, itemToEdit, rewardsBudget }) {
   const [imageUrl, setImageUrl] = useState(itemToEdit?.imageUrl || "");
   const [error, setError] = useState(null);
 
-  // === 3. (ใหม่) คำนวณ "คำแนะนำ" ===
-  const recommendation = useMemo(() => {
-    // (ใช้ 'totalAmount' (เพดานงบ) ไม่ใช่ 'currentAmount' (ที่ใช้ไป))
-    const budgetTotal = rewardsBudget?.totalAmount || 0;
-
-    // (ฟังก์ชันนี้จะคืนค่าเป็นข้อความ "0 - 500", "500 - 1,000" เป็นต้น)
-    return {
-      1: `0 - ${Math.floor(budgetTotal * 0.5).toLocaleString()}`,
-      2: `${Math.floor(budgetTotal * 0.5).toLocaleString()} - ${Math.floor(
-        budgetTotal * 1.0
-      ).toLocaleString()}`,
-      3: `${Math.floor(budgetTotal * 1.0).toLocaleString()} - ${Math.floor(
-        budgetTotal * 6.0
-      ).toLocaleString()}`,
-      4: `${Math.floor(budgetTotal * 6.0).toLocaleString()} - ${Math.floor(
-        budgetTotal * 12.0
-      ).toLocaleString()}`,
-      5: `> ${Math.floor(budgetTotal * 12.0).toLocaleString()}`,
-    };
-  }, [rewardsBudget]);
-  // === END CHANGE ===
+  // (ลบ) 'recommendation' useMemo
 
   const handleImageUpload = (e) => {
     const file = e.target.files[0];
@@ -299,25 +403,23 @@ function AddShopItemModal({ onClose, itemToEdit, rewardsBudget }) {
       return;
     }
 
-    // === 4. (อัปเดต) Logic การคำนวณราคา ===
-    // (กลับไปใช้สูตรเดิมของคุณ)
+    // (Logic 'calculatePrice' กลับไปเป็นเหมือนเดิม)
     let finalPrice;
     if (isEditMode) {
       if (rank !== itemToEdit.rank.toString()) {
-        finalPrice = calculatePrice(rank); // (ใช้สูตรสุ่ม)
+        finalPrice = calculatePrice(rank);
       } else {
-        finalPrice = itemToEdit.price; // (ใช้ราคาเดิม)
+        finalPrice = itemToEdit.price;
       }
     } else {
-      finalPrice = calculatePrice(rank); // (ใช้สูตรสุ่ม)
+      finalPrice = calculatePrice(rank);
     }
-    // === END CHANGE ===
 
     const newItemData = {
       name,
       detail,
       rank: parseInt(rank, 10),
-      price: finalPrice, // (นี่คือราคา Game Coins)
+      price: finalPrice,
       imageUrl,
     };
 
@@ -344,21 +446,7 @@ function AddShopItemModal({ onClose, itemToEdit, rewardsBudget }) {
           </button>
         </div>
         <div style={styles.modalForm}>
-          {/* === 5. (ใหม่) กล่องคำแนะนำ === */}
-          <div style={styles.infoBox}>
-            <HelpCircle size={18} color="#64cfff" />
-            <div style={styles.infoText}>
-              <span>
-                คำแนะนำ (จากงบ 'รางวัล' :
-                {" " + rewardsBudget?.totalAmount.toLocaleString() || 0})
-              </span>
-              <span style={styles.recommendationText}>
-                R1: {recommendation["1"]} | R2: {recommendation["2"]} | R3:
-                {recommendation["3"]} | R4: {recommendation["4"]} | R5:
-                {recommendation["5"]}
-              </span>
-            </div>
-          </div>
+          {/* (ลบ) Info Box */}
 
           <div style={styles.inputGroup}>
             <label>ชื่อไอเทม</label>
@@ -379,7 +467,7 @@ function AddShopItemModal({ onClose, itemToEdit, rewardsBudget }) {
             ></textarea>
           </div>
 
-          {/* === 6. (อัปเดต) Dropdown (ลบราคาออก) === */}
+          {/* (Dropdown ... กลับไปเป็นแบบเดิม) */}
           <div style={styles.inputGroup}>
             <label>ระดับ (Rank) - (ราคา Coins จะถูกสุ่ม)</label>
             <select
@@ -423,9 +511,10 @@ function AddShopItemModal({ onClose, itemToEdit, rewardsBudget }) {
   );
 }
 
-// (Component 'ConfirmBuyModal' ... เหมือนเดิม)
+// (Component 'ConfirmBuyModal' ... อัปเดต)
 function ConfirmBuyModal({ item, user, onClose, onConfirm }) {
   const hasEnoughMoney = user && user.money >= item.price;
+
   return (
     <div style={styles.modalOverlay}>
       <div style={styles.modalContent}>
@@ -442,7 +531,8 @@ function ConfirmBuyModal({ item, user, onClose, onConfirm }) {
         <div style={styles.rewardInfoBox}>
           <span>เงินของคุณ:</span>
           <span style={{ color: "#FFD700" }}>
-            {user.money.toLocaleString()}
+            {user?.money.toLocaleString() || 0}{" "}
+            {/* (แก้ Bug เผื่อ user=null) */}
           </span>
         </div>
         {!hasEnoughMoney && (
@@ -456,7 +546,7 @@ function ConfirmBuyModal({ item, user, onClose, onConfirm }) {
             ยกเลิก
           </button>
           <button
-            onClick={() => onConfirm(item)}
+            onClick={() => onConfirm(item)} // (ส่ง item กลับไป)
             style={styles.confirmButton}
             disabled={!hasEnoughMoney}
           >
@@ -775,31 +865,7 @@ const styles = {
     fontSize: "1.1rem",
     gap: "10px",
   },
-
-  // === (ใหม่) CSS สำหรับ Info Box ===
-  infoBox: {
-    display: "flex",
-    alignItems: "flex-start", // (เปลี่ยนเป็น start)
-    gap: "10px",
-    backgroundColor: "#333",
-    padding: "10px",
-    borderRadius: "5px",
-    borderLeft: "4px solid #64cfff",
-  },
-  infoText: {
-    display: "flex",
-    flexDirection: "column",
-    fontSize: "0.9rem",
-    color: "#aaa",
-  },
-  recommendationText: {
-    // (ใหม่)
-    fontSize: "0.8rem",
-    color: "#ccc",
-    fontStyle: "italic",
-    lineHeight: 1.4, // (ทำให้อ่านง่ายขึ้น)
-    marginTop: "4px",
-  },
+  // (ลบ) CSS ที่ไม่ใช้
 };
 
 export default Shop;

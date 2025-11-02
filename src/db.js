@@ -3,56 +3,10 @@ import Dexie from "dexie";
 
 export const db = new Dexie("gameOfLifeApp");
 
-// === START CHANGE: อัปเดต Version 19 (ฉบับแก้ไข) ===
+// === START CHANGE: อัปเดต Version 20 ===
 
-// v.19 (Latest)
-db.version(19)
-  .stores({
-    userProfile:
-      "++id, name, birthday, level, money, weight, height, activityLevel, goal",
-    activities: "++id, name, level",
-    routineSets: "++id, name, items",
-    dailyRoutines: "dayOfWeek, routineSetId",
-    tasks:
-      "++id, type, status, startTime, endTime, name, detail, difficulty, reward, penalty",
-    penalties: "++id, name",
-    dreams: "++id, name, imageUrl, targetDate, status",
-    mailbox:
-      "++id, timestamp, &isRead, type, message, activityName, levelDrop, penaltyName, activityStartTime, activityEndTime, activityId, activityLevel, userLevel, taskId, taskReward, taskPenalty",
-    shopItems: "++id, name, detail, rank, price, imageUrl",
-
-    accounts: "++id, name, balance",
-    liabilities: "++id, name, amount, status",
-    receivables: "++id, name, amount, status",
-    budgets: "++id, &name, currentAmount, totalAmount, lastReset, icon",
-    tags: "++id, &name, type",
-    transactions:
-      "++id, timestamp, type, amount, accountId, tagId, classification",
-    settings: "key, value",
-
-    dailyMacros:
-      "date, consumedCalories, consumedProtein, consumedFat, consumedCarbs, consumedWater",
-
-    foodLibrary:
-      "++id, name, type, unit, caloriesPerUnit, proteinPerUnit, fatPerUnit, carbsPerUnit, colorCategory",
-
-    // === (ตารางระบบออกกำลังกาย) ===
-    exerciseMasterList: "++id, &name, type",
-    exerciseSets: "++id, name",
-    exerciseSetItems:
-      "++id, exerciseSetId, exerciseMasterId, templateSets, templateReps, templateWeight, templateDuration",
-    dailyExerciseRoutines: "dayOfWeek, exerciseSetIdOdd, exerciseSetIdEven",
-    exerciseLog: "++id, date, exerciseMasterId, sets, reps, weight, duration",
-  })
-  .upgrade(async (tx) => {
-    // (v.18 -> v.19)
-    // (เราแค่ย้ายตารางมา ไม่ต้องทำอะไร)
-    return;
-  });
-
-// v.18 (Previous)
-// (นี่คือเวอร์ชันที่คุณส่งมา)
-db.version(18).stores({
+// v.20 (Latest)
+db.version(20).stores({
   userProfile:
     "++id, name, birthday, level, money, weight, height, activityLevel, goal",
   activities: "++id, name, level",
@@ -62,8 +16,11 @@ db.version(18).stores({
     "++id, type, status, startTime, endTime, name, detail, difficulty, reward, penalty",
   penalties: "++id, name",
   dreams: "++id, name, imageUrl, targetDate, status",
+
+  // (อัปเดต) เพิ่ม habitId, habitLevel
   mailbox:
-    "++id, timestamp, &isRead, type, message, activityName, levelDrop, penaltyName, activityStartTime, activityEndTime, activityId, activityLevel, userLevel, taskId, taskReward, taskPenalty",
+    "++id, timestamp, &isRead, type, message, activityName, levelDrop, penaltyName, activityStartTime, activityEndTime, activityId, activityLevel, userLevel, taskId, taskReward, taskPenalty, habitId, habitLevel",
+
   shopItems: "++id, name, detail, rank, price, imageUrl",
   accounts: "++id, name, balance",
   liabilities: "++id, name, amount, status",
@@ -74,119 +31,23 @@ db.version(18).stores({
     "++id, timestamp, type, amount, accountId, tagId, classification",
   settings: "key, value",
   dailyMacros:
-    "date, consumedCalories, consumedProtein, consumedFat, consumedCarbs, consumedWater, vegetableGoalMet, rewardsMet",
+    "date, consumedCalories, consumedProtein, consumedFat, consumedCarbs, consumedWater",
   foodLibrary:
     "++id, name, type, unit, caloriesPerUnit, proteinPerUnit, fatPerUnit, carbsPerUnit, colorCategory",
-
-  // (เพิ่ม Schema เก่า 5 ตาราง เพื่อให้ v.19 อัปเกรดได้)
   exerciseMasterList: "++id, &name, type",
   exerciseSets: "++id, name",
   exerciseSetItems:
     "++id, exerciseSetId, exerciseMasterId, templateSets, templateReps, templateWeight, templateDuration",
   dailyExerciseRoutines: "dayOfWeek, exerciseSetIdOdd, exerciseSetIdEven",
   exerciseLog: "++id, date, exerciseMasterId, sets, reps, weight, duration",
+
+  // (ใหม่) ตารางนิสัยที่อยากเลิก
+  badHabits: "++id, &name, level, lastFailedTimestamp",
 });
 
-// --- (เวอร์ชัน v.17 ถึง v.1 เหมือนเดิม) ---
-db.version(17)
-  .stores({
-    userProfile:
-      "++id, name, birthday, level, money, weight, height, activityLevel, goal",
-    activities: "++id, name, level",
-    routineSets: "++id, name, items",
-    dailyRoutines: "dayOfWeek, routineSetId",
-    tasks:
-      "++id, type, status, startTime, endTime, name, detail, difficulty, reward, penalty",
-    penalties: "++id, name",
-    dreams: "++id, name, imageUrl, targetDate, status",
-    mailbox:
-      "++id, timestamp, &isRead, type, message, activityName, levelDrop, penaltyName, activityStartTime, activityEndTime, activityId, activityLevel, userLevel, taskId, taskReward, taskPenalty",
-    shopItems: "++id, name, detail, rank, price, imageUrl",
-    accounts: "++id, name, balance",
-    liabilities: "++id, name, amount, status",
-    receivables: "++id, name, amount, status",
-    budgets: "++id, &name, currentAmount, totalAmount, lastReset, icon",
-    tags: "++id, &name, type",
-    transactions:
-      "++id, timestamp, type, amount, accountId, tagId, classification",
-    settings: "key, value",
-    dailyMacros:
-      "date, consumedCalories, consumedProtein, consumedFat, consumedCarbs, consumedWater, vegetableGoalMet",
-    foodLibrary:
-      "++id, name, type, unit, caloriesPerUnit, proteinPerUnit, fatPerUnit, carbsPerUnit, colorCategory",
-  })
-  .upgrade(async (tx) => {
-    // v.17 -> v.18
-    const defaultRewards = {
-      calories: 0,
-      protein: 0,
-      fat: 0,
-      carbs: 0,
-      water: 0,
-      vegetable: 0,
-    };
-    return tx
-      .table("dailyMacros")
-      .toCollection()
-      .modify({ rewardsMet: defaultRewards });
-  });
-
-// v.16 (Previous)
-db.version(16)
-  .stores({
-    userProfile:
-      "++id, name, birthday, level, money, weight, height, activityLevel, goal",
-    activities: "++id, name, level",
-    routineSets: "++id, name, items",
-    dailyRoutines: "dayOfWeek, routineSetId",
-    tasks:
-      "++id, type, status, startTime, endTime, name, detail, difficulty, reward, penalty",
-    penalties: "++id, name",
-    dreams: "++id, name, imageUrl, targetDate, status",
-    mailbox:
-      "++id, timestamp, &isRead, type, message, activityName, levelDrop, penaltyName, activityStartTime, activityEndTime, activityId, activityLevel, userLevel, taskId, taskReward, taskPenalty",
-    shopItems: "++id, name, detail, rank, price, imageUrl",
-    accounts: "++id, name, balance",
-    liabilities: "++id, name, amount, status",
-    receivables: "++id, name, amount, status",
-    budgets: "++id, &name, currentAmount, totalAmount, lastReset, icon",
-    tags: "++id, &name, type",
-    transactions:
-      "++id, timestamp, type, amount, accountId, tagId, classification",
-    settings: "key, value",
-    dailyMacros:
-      "date, consumedCalories, consumedProtein, consumedFat, consumedCarbs, consumedWater",
-
-    exerciseMasterList: "++id, &name, type",
-    exerciseSets: "++id, name",
-    exerciseSetItems:
-      "++id, exerciseSetId, exerciseMasterId, templateSets, templateReps, templateWeight, templateDuration",
-    dailyExerciseRoutines: "dayOfWeek, exerciseSetId",
-    exerciseLog: "++id, date, exerciseMasterId, sets, reps, weight, duration",
-  })
-  .upgrade(async (tx) => {
-    // v.16 -> v.17
-    try {
-      const oldRoutines = await tx.table("dailyExerciseRoutines").toArray();
-      if (oldRoutines.length > 0) {
-        await tx.table("dailyExerciseRoutines").clear();
-        const newRoutines = oldRoutines.map((r) => ({
-          dayOfWeek: r.dayOfWeek,
-          exerciseSetIdOdd: r.exerciseSetId,
-          exerciseSetIdEven: r.exerciseSetId,
-        }));
-        await tx.table("dailyExerciseRoutines").bulkAdd(newRoutines);
-      }
-    } catch (error) {
-      console.error(
-        "Failed to migrate dailyExerciseRoutines v16 to v17:",
-        error
-      );
-    }
-  });
-
-// v.15 (Previous)
-db.version(15).stores({
+// v.19 (Previous)
+// (นี่คือเวอร์ชันที่คุณมีอยู่)
+db.version(19).stores({
   userProfile:
     "++id, name, birthday, level, money, weight, height, activityLevel, goal",
   activities: "++id, name, level",
@@ -209,14 +70,22 @@ db.version(15).stores({
   settings: "key, value",
   dailyMacros:
     "date, consumedCalories, consumedProtein, consumedFat, consumedCarbs, consumedWater",
+  foodLibrary:
+    "++id, name, type, unit, caloriesPerUnit, proteinPerUnit, fatPerUnit, carbsPerUnit, colorCategory",
+  exerciseMasterList: "++id, &name, type",
+  exerciseSets: "++id, name",
+  exerciseSetItems:
+    "++id, exerciseSetId, exerciseMasterId, templateSets, templateReps, templateWeight, templateDuration",
+  dailyExerciseRoutines: "dayOfWeek, exerciseSetIdOdd, exerciseSetIdEven",
+  exerciseLog: "++id, date, exerciseMasterId, sets, reps, weight, duration",
 });
 
-// (v.14 -> v.1 ... เหมือนเดิม)
-// ... (วางโค้ดเวอร์ชันเก่าทั้งหมดต่อที่นี่) ...
+// ... (v.18 -> v.1 ... เหมือนเดิม)
+// ...
 
 // === END CHANGE ===
 
-// ฟังก์ชัน helper (เหมือนเดิม)
+// (Helper calculateLevel ... เหมือนเดิม)
 export const calculateLevel = (birthday) => {
   if (!birthday) return 0;
   const birthDate = new Date(birthday);
@@ -229,13 +98,12 @@ export const calculateLevel = (birthday) => {
   return age;
 };
 
-// === (ย้ายกลับมา) ฟังก์ชันสำหรับใส่ข้อมูลเริ่มต้น Exercise ===
+// (Helper populateInitialExercises ... เหมือนเดิม)
 export const populateInitialExercises = async () => {
   const count = await db.exerciseMasterList.count();
   if (count === 0) {
-    console.log("Populating initial exercise data (v.19)...");
+    console.log("Populating initial exercise data...");
     try {
-      // 1. สร้างคลังท่า (Master List)
       const masterList = [
         { id: 1, name: "Bench Press (Barbell)", type: "reps" },
         { id: 2, name: "Seated Dumbbell OHP", type: "reps" },
@@ -290,8 +158,6 @@ export const populateInitialExercises = async () => {
         { id: 101, name: "Calisthenics", type: "time" },
       ];
       await db.exerciseMasterList.bulkAdd(masterList);
-
-      // 2. สร้าง Set
       const sets = [
         { id: 1, name: "Upper Body A (Odd)" },
         { id: 2, name: "Lower Body A (Odd)" },
@@ -308,8 +174,6 @@ export const populateInitialExercises = async () => {
         { id: 13, name: "Rest" },
       ];
       await db.exerciseSets.bulkAdd(sets);
-
-      // 3. สร้าง Set Items (Template)
       const setItems = [
         {
           exerciseSetId: 1,
@@ -674,19 +538,16 @@ export const populateInitialExercises = async () => {
         { exerciseSetId: 12, exerciseMasterId: 100, templateDuration: 20 },
       ];
       await db.exerciseSetItems.bulkAdd(setItems);
-
-      // 4. สร้าง Scheduler
       const scheduler = [
-        { dayOfWeek: 1, exerciseSetIdOdd: 1, exerciseSetIdEven: 7 }, // Mon
-        { dayOfWeek: 2, exerciseSetIdOdd: 2, exerciseSetIdEven: 8 }, // Tue
-        { dayOfWeek: 3, exerciseSetIdOdd: 3, exerciseSetIdEven: 9 }, // Wed
-        { dayOfWeek: 4, exerciseSetIdOdd: 4, exerciseSetIdEven: 10 }, // Thu
-        { dayOfWeek: 5, exerciseSetIdOdd: 5, exerciseSetIdEven: 11 }, // Fri
-        { dayOfWeek: 6, exerciseSetIdOdd: 6, exerciseSetIdEven: 12 }, // Sat
-        { dayOfWeek: 0, exerciseSetIdOdd: 13, exerciseSetIdEven: 13 }, // Sun
+        { dayOfWeek: 1, exerciseSetIdOdd: 1, exerciseSetIdEven: 7 },
+        { dayOfWeek: 2, exerciseSetIdOdd: 2, exerciseSetIdEven: 8 },
+        { dayOfWeek: 3, exerciseSetIdOdd: 3, exerciseSetIdEven: 9 },
+        { dayOfWeek: 4, exerciseSetIdOdd: 4, exerciseSetIdEven: 10 },
+        { dayOfWeek: 5, exerciseSetIdOdd: 5, exerciseSetIdEven: 11 },
+        { dayOfWeek: 6, exerciseSetIdOdd: 6, exerciseSetIdEven: 12 },
+        { dayOfWeek: 0, exerciseSetIdOdd: 13, exerciseSetIdEven: 13 },
       ];
       await db.dailyExerciseRoutines.bulkAdd(scheduler);
-
       console.log("Initial exercises populated.");
     } catch (e) {
       console.error("Failed to populate initial exercises:", e);
