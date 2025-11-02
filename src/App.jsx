@@ -1,9 +1,11 @@
 // src/App.jsx
 import React, { useState, useEffect } from "react";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
-import { db } from "./db";
+// === 1. START CHANGE: (ย้ายกลับมา) Import ฟังก์ชันจาก db.js ===
+import { db, populateInitialExercises } from "./db";
+// === END CHANGE ===
 
-// Layout & Pages
+// (Imports ... ทั้งหมดเหมือนเดิม)
 import MainLayout from "./components/layout/MainLayout";
 import Onboarding from "./components/Onboarding";
 import Home from "./pages/Home";
@@ -20,12 +22,12 @@ import RoutineSetManager from "./pages/RoutineSetManager";
 import RoutineSetEditor from "./pages/RoutineSetEditor";
 import FinanceSummary from "./pages/FinanceSummary";
 import TagManager from "./pages/TagManager";
-import ExercisePage from "./pages/ExercisePage"; // (Baseline)
-
-// === START CHANGE: Food Log Imports ===
+import ExercisePage from "./pages/ExercisePage";
 import LogFood from "./pages/LogFood";
 import AddFood from "./pages/AddFood";
-// === END CHANGE ===
+import ExerciseSettings from "./pages/ExerciseSettings";
+import ExerciseSetManager from "./pages/ExerciseSetManager";
+import ExerciseSetEditor from "./pages/ExerciseSetEditor";
 
 function App() {
   const [userProfile, setUserProfile] = useState(undefined);
@@ -33,6 +35,10 @@ function App() {
   useEffect(() => {
     const checkUser = async () => {
       try {
+        // === 2. START CHANGE: (ย้ายกลับมา) เรียกใช้ฟังก์ชันนี้ ===
+        await populateInitialExercises();
+        // === END CHANGE ===
+
         const user = await db.userProfile.toCollection().first();
         setUserProfile(user || null);
       } catch (error) {
@@ -60,39 +66,33 @@ function App() {
         <Route path="/" element={<MainLayout user={userProfile} />}>
           <Route index element={<Home />} />
 
-          {/* Footer Tabs */}
+          {/* (Routes ... ทั้งหมดเหมือนเดิม) */}
           <Route path="amway" element={<Amway />} />
           <Route path="health" element={<Health />} />
           <Route path="finance" element={<Finance />} />
           <Route path="profile" element={<Profile />} />
-
-          {/* Slide Menu */}
           <Route path="edit-routine" element={<EditRoutine />} />
           <Route path="penalty" element={<Penalty />} />
-
-          {/* Header */}
           <Route path="mailbox" element={<Mailbox />} />
           <Route path="shop" element={<Shop />} />
-
-          {/* Sub Pages */}
           <Route path="dreams" element={<DreamListPage />} />
           <Route path="routine-set-manager" element={<RoutineSetManager />} />
           <Route
             path="routine-set-editor/:setId"
             element={<RoutineSetEditor />}
           />
-
-          {/* Finance Sub Pages */}
           <Route path="finance-summary" element={<FinanceSummary />} />
           <Route path="tag-manager" element={<TagManager />} />
-
-          {/* Health Sub Pages */}
-          <Route path="exercise" element={<ExercisePage />} />
-
-          {/* === START CHANGE: Food Log Routes === */}
           <Route path="log-food" element={<LogFood />} />
           <Route path="add-food" element={<AddFood />} />
-          {/* === END CHANGE === */}
+          <Route path="add-food/:foodId" element={<AddFood />} />
+          <Route path="exercise" element={<ExercisePage />} />
+          <Route path="exercise-settings" element={<ExerciseSettings />} />
+          <Route path="exercise-set-manager" element={<ExerciseSetManager />} />
+          <Route
+            path="exercise-set-editor/:setId"
+            element={<ExerciseSetEditor />}
+          />
 
           <Route path="*" element={<Navigate to="/" replace />} />
         </Route>
