@@ -72,22 +72,26 @@ function Finance() {
       .toArray();
   }, []);
 
-  // === 2. (ใหม่) ดึงข้อมูล "เดือนที่แล้ว" ===
-  // 2a. คำนวณขอบเขตของเดือนที่แล้ว
-  const { lastMonthFirstDay, lastMonthLastDay } = useMemo(() => {
-    const now = new Date();
-    const year = now.getFullYear();
-    const month = now.getMonth();
-    const first = new Date(year, month - 1, 1); // วันที่ 1 ของเดือนที่แล้ว
-    const last = new Date(year, month, 0); // วันที่ 0 ของเดือนนี้ = วันสุดท้ายของเดือนที่แล้ว
-    last.setHours(23, 59, 59, 999);
-    return {
-      lastMonthFirstDay: first.toISOString(),
-      lastMonthLastDay: last.toISOString(),
-    };
-  }, []); // (คำนวณครั้งเดียว)
+  // 2. ดึงข้อมูล "เดือนที่แล้ว" และ "เดือนนี้"
+  // (อัปเดต) เพิ่ม currentMonthFirstDay
+  const { lastMonthFirstDay, lastMonthLastDay, currentMonthFirstDay } =
+    useMemo(() => {
+      const now = new Date();
+      const year = now.getFullYear();
+      const month = now.getMonth();
+      const firstLastMonth = new Date(year, month - 1, 1);
+      const lastLastMonth = new Date(year, month, 0);
+      lastLastMonth.setHours(23, 59, 59, 999);
+      const firstCurrentMonth = new Date(year, month, 1);
 
-  // 2b. (ใหม่) ดึงยอดรวม "รายจ่ายคงที่" ของเดือนที่แล้ว
+      return {
+        lastMonthFirstDay: firstLastMonth.toISOString(),
+        lastMonthLastDay: lastLastMonth.toISOString(),
+        currentMonthFirstDay: firstCurrentMonth.toISOString(),
+      };
+    }, []);
+
+  // (เหมือนเดิม) ยอด Fixed เดือนที่แล้ว (สำหรับ Auto-Estimate)
   const lastMonthFixedTotal = useLiveQuery(
     async () => {
       const txs = await db.transactions
@@ -95,21 +99,34 @@ function Finance() {
         .between(lastMonthFirstDay, lastMonthLastDay)
         .filter((t) => t.type === "expense" && t.classification === "fixed")
         .toArray();
-
-      // (สำคัญ) ถ้าไม่มีข้อมูล ให้คืนค่า null
       if (!txs || txs.length === 0) return null;
-
       return txs.reduce((sum, t) => sum + t.amount, 0);
     },
-    [lastMonthFirstDay, lastMonthLastDay], // (Dependencies)
-    null // (ค่าเริ่มต้น = null (ยังไม่รู้))
+    [lastMonthFirstDay, lastMonthLastDay],
+    null
   );
-  // === END (ใหม่) ===
 
-  // 3. States (เหมือนเดิม)
+  // (ใหม่) ยอด Fixed ที่จ่ายไปแล้ว "เดือนนี้" (สำหรับ Auto-Paid)
+  const paidFixedThisMonth_Auto = useLiveQuery(
+    async () => {
+      const txs = await db.transactions
+        .where("timestamp")
+        .aboveOrEqual(currentMonthFirstDay)
+        .filter((t) => t.type === "expense" && t.classification === "fixed")
+        .toArray();
+      if (!txs || txs.length === 0) return 0; // คืนค่า 0 ถ้าไม่มี
+      return txs.reduce((sum, t) => sum + t.amount, 0);
+    },
+    [currentMonthFirstDay],
+    null // เริ่มต้นเป็น null (กำลังโหลด)
+  );
+
+  // === 3. (อัปเดต) States ===
   const [isAddingAccount, setIsAddingAccount] = useState(false);
+  const [accountToEdit, setAccountToEdit] = useState(null);
   const [isAddingLiability, setIsAddingLiability] = useState(false);
   const [isAddingReceivable, setIsAddingReceivable] = useState(false);
+  const [dueToEdit, setDueToEdit] = useState(null);
   const [paymentModal, setPaymentModal] = useState(null);
   const [isManagingBudgets, setIsManagingBudgets] = useState(false);
   const [budgetLogModal, setBudgetLogModal] = useState(null);
@@ -142,6 +159,7 @@ function Finance() {
 
   // 5. useEffect (Budgets Rollover - เหมือนเดิม)
   useEffect(() => {
+    // ... (เหมือนเดิม)
     const checkAndRolloverBudgets = async () => {
       if (!budgets || budgets.length === 0) return;
       const now = new Date();
@@ -175,11 +193,13 @@ function Finance() {
     checkAndRolloverBudgets();
   }, [budgets]);
 
-  // 6. useEffect (Settings Initialization - เหมือนเดิม)
+  // 6. useEffect (Settings Initialization - อัปเดต)
   useEffect(() => {
     const initializeSettings = async () => {
       if (!settings) return;
       const today = getTodayDateString();
+
+      // (เหมือนเดิม)
       const mode = settings.find((s) => s.key === "fixedExpenseMode");
       if (!mode) {
         await db.settings.put({ key: "fixedExpenseMode", value: "manual" });
@@ -188,6 +208,20 @@ function Finance() {
       if (!manualValue) {
         await db.settings.put({ key: "manualFixedExpense", value: 10000 });
       }
+
+      // (ใหม่) เพิ่ม settings สำหรับ Paid Fixed
+      const paidMode = settings.find((s) => s.key === "paidFixedMode");
+      if (!paidMode) {
+        await db.settings.put({ key: "paidFixedMode", value: "auto" });
+      }
+      const manualPaidValue = settings.find(
+        (s) => s.key === "manualPaidFixedThisMonth"
+      );
+      if (!manualPaidValue) {
+        await db.settings.put({ key: "manualPaidFixedThisMonth", value: 0 });
+      }
+
+      // (เหมือนเดิม)
       const lastReset = settings.find(
         (s) => s.key === "dailySpendableLastReset"
       );
@@ -223,41 +257,71 @@ function Finance() {
     );
   }, [budgets]);
 
-  // === 8. START CHANGE: (อัปเดต) คำนวณ Fixed Expense ===
-  const fixedExpense = useMemo(() => {
+  // 8. (อัปเดต) คำนวณค่าใช้จ่ายคงที่
+
+  // 8a. (เหมือนเดิม) ยอด "ประมาณการ" Fixed ทั้งเดือน (จาก Manual หรือ Auto-last-month)
+  const estimatedFixedExpense = useMemo(() => {
     if (!settings) return 0;
     const mode =
       settings.find((s) => s.key === "fixedExpenseMode")?.value || "manual";
-
-    // (ใหม่) โหมดอัตโนมัติ
     if (mode === "auto") {
-      // ถ้า lastMonthFixedTotal ยังไม่มา (null) หรือมาแล้วแต่เป็น 0 ให้ใช้ 0
       return lastMonthFixedTotal || 0;
     }
-
-    // (เดิม) โหมด Manual
     return settings.find((s) => s.key === "manualFixedExpense")?.value || 0;
-  }, [settings, lastMonthFixedTotal]); // (ใหม่) เพิ่ม dependency
-  // === END CHANGE ===
+  }, [settings, lastMonthFixedTotal]);
 
-  // 9. คำนวณ Daily Spendable (เหมือนเดิม)
+  // 8b. (ใหม่) ยอด Fixed ที่ "จ่ายไปแล้ว" เดือนนี้ (จาก Manual หรือ Auto-this-month)
+  const paidFixedThisMonth = useMemo(() => {
+    if (!settings || paidFixedThisMonth_Auto === null) return 0; // (รอโหลด)
+    const mode =
+      settings.find((s) => s.key === "paidFixedMode")?.value || "auto";
+    if (mode === "auto") {
+      return paidFixedThisMonth_Auto; // (ค่าที่คำนวณจาก DB)
+    }
+    return (
+      settings.find((s) => s.key === "manualPaidFixedThisMonth")?.value || 0
+    );
+  }, [settings, paidFixedThisMonth_Auto]);
+
+  // 9. (อัปเดต) คำนวณ Daily Spendable (สูตรใหม่)
   const dailySpendable = useMemo(() => {
-    if (!settings || !accounts || !budgets || !todayTransactions)
+    if (
+      !settings ||
+      !accounts ||
+      !budgets ||
+      !todayTransactions ||
+      !liabilities || // (ใหม่)
+      !receivables || // (ใหม่)
+      paidFixedThisMonth_Auto === null // (ใหม่)
+    )
       return { limit: 0, used: 0, remainingDays: 1 };
 
+    // (เหมือนเดิม) ยอดใช้จ่ายผันแปรวันนี้
     const dailyUsed = todayTransactions
       .filter((t) => t.type === "expense" && t.classification === "variable")
       .reduce((sum, t) => sum + t.amount, 0);
 
-    const currentFixedExpense = fixedExpense; // (ใช้ค่าที่คำนวณจากข้อ 8)
+    // --- (อัปเดต) คำนวณตามสูตรใหม่ ---
+
+    // 1. (ใหม่) คำนวณเงินตั้งต้น (Net Assets)
+    const netAssets = totalAssets + totalReceivables - totalLiabilities;
+
+    // 2. (ใหม่) คำนวณ Fixed ที่ "ยังเหลือต้องจ่าย"
+    const remainingFixedToPay = Math.max(
+      0,
+      estimatedFixedExpense - paidFixedThisMonth
+    );
 
     const now = new Date();
     const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0);
     const remainingDays = Math.max(1, endOfMonth.getDate() - now.getDate() + 1);
 
+    // 3. (ใหม่) คำนวณเงินที่ "ใช้ได้จริง" (สำหรับ Variable)
     const availableToSpend =
-      totalAssets - totalRemainingBudgets - currentFixedExpense;
+      netAssets - totalRemainingBudgets - remainingFixedToPay;
+
     const dailyLimit = Math.max(0, availableToSpend / remainingDays);
+    // --- สิ้นสุดการอัปเดต ---
 
     return {
       limit: Math.floor(dailyLimit),
@@ -266,12 +330,16 @@ function Finance() {
     };
   }, [
     totalAssets,
+    totalLiabilities, // (ใหม่)
+    totalReceivables, // (ใหม่)
     totalRemainingBudgets,
     settings,
     todayTransactions,
     accounts,
     budgets,
-    fixedExpense,
+    estimatedFixedExpense, // (อัปเดต)
+    paidFixedThisMonth, // (ใหม่)
+    paidFixedThisMonth_Auto, // (ใหม่)
   ]);
 
   // (Handler สำหรับลบ Account - เหมือนเดิม)
@@ -281,7 +349,26 @@ function Finance() {
     }
   };
 
-  // ถ้ายังโหลดไม่เสร็จ
+  // (Handlers สำหรับ "ลบ" และ "เปิดหน้าแก้ไข" หนี้สิน/ค้างรับ - เหมือนเดิม)
+  const handleDeleteDue = async (type, id, name) => {
+    if (window.confirm(`คุณแน่ใจหรือไม่ว่าต้องการลบ "${name}"?`)) {
+      try {
+        if (type === "liability") {
+          await db.liabilities.delete(id);
+        } else {
+          await db.receivables.delete(id);
+        }
+      } catch (e) {
+        console.error(`Failed to delete ${type}:`, e);
+      }
+    }
+  };
+
+  const handleOpenEditDue = (type, item) => {
+    setDueToEdit({ type, item });
+  };
+
+  // (อัปเดต) ถ้ายังโหลดไม่เสร็จ
   if (
     !accounts ||
     !liabilities ||
@@ -289,9 +376,9 @@ function Finance() {
     !budgets ||
     !settings ||
     !tags ||
-    lastMonthFixedTotal === undefined
+    lastMonthFixedTotal === undefined || // (รอ Auto-Estimate)
+    paidFixedThisMonth_Auto === null // (ใหม่) (รอ Auto-Paid)
   ) {
-    // (เพิ่ม) รอ 'lastMonthFixedTotal' โหลด (จาก null เป็น 0 หรือ number)
     return <div>กำลังโหลดข้อมูลการเงิน...</div>;
   }
 
@@ -315,11 +402,11 @@ function Finance() {
     );
   }
 
-  // (หน้าหลัก JSX - เหมือนเดิม)
+  // (หน้าหลัก JSX)
   return (
     <div style={styles.page}>
       <div style={styles.scrollArea}>
-        {/* --- 1. สรุปสินทรัพย์ (Accounts) --- */}
+        {/* --- 1. สรุปสินทรัพย์ (Accounts) (อัปเดต) --- */}
         <div style={styles.section}>
           <div style={styles.sectionHeader}>
             <h3 style={styles.sectionTitle}>สินทรัพย์ (Accounts)</h3>
@@ -340,8 +427,15 @@ function Finance() {
                 )}
                 <span>{acc.name}</span>
               </div>
+              {/* (อัปเดต) เพิ่มปุ่ม Edit */}
               <div style={styles.accountBalance}>
                 <span>{acc.balance.toLocaleString()}</span>
+                <button
+                  onClick={() => setAccountToEdit(acc)}
+                  style={styles.deleteButton}
+                >
+                  <Edit size={16} />
+                </button>
                 <button
                   onClick={() => handleDeleteAccount(acc.id, acc.name)}
                   style={styles.deleteButton}
@@ -356,7 +450,7 @@ function Finance() {
             <strong>{totalAssets.toLocaleString()}</strong>
           </div>
 
-          {/* Daily Spendable */}
+          {/* Daily Spendable (เหมือนเดิม) */}
           <div style={styles.dailySpendBox}>
             <div style={styles.dailySpendHeader}>
               <span>ค่าใช้จ่ายต่อวัน (Variable)</span>
@@ -372,7 +466,8 @@ function Finance() {
                 style={{
                   ...styles.hpBarInner,
                   width: `${
-                    (dailySpendable.used / dailySpendable.limit) * 100
+                    (dailySpendable.used / (dailySpendable.limit + 0.0001)) *
+                    100 // (ป้องกัน 0/0)
                   }%`,
                   backgroundColor: "#ffaaaa",
                 }}
@@ -385,7 +480,7 @@ function Finance() {
           </div>
         </div>
 
-        {/* --- 2. งบประมาณ (Budgets) --- */}
+        {/* --- 2. งบประมาณ (Budgets) (เหมือนเดิม) --- */}
         <div style={styles.section}>
           <div style={styles.sectionHeader}>
             <h3 style={styles.sectionTitle}>งบประมาณ (Budgets)</h3>
@@ -435,7 +530,7 @@ function Finance() {
           </div>
         </div>
 
-        {/* --- 3. ค้างรับ / หนี้สิน --- */}
+        {/* --- 3. ค้างรับ / หนี้สิน (เหมือนเดิม) --- */}
         <div style={styles.grid2}>
           {/* ค้างรับ (ซ้าย) */}
           <div style={styles.section}>
@@ -456,12 +551,30 @@ function Finance() {
                       <span>{item.name}</span>
                       <strong>{item.amount.toLocaleString()}</strong>
                     </div>
-                    <button
-                      onClick={() => setPaymentModal({ type: "receive", item })}
-                      style={styles.payButtonGreen}
-                    >
-                      <CheckCircle2 size={16} />
-                    </button>
+                    <div style={styles.dueActions}>
+                      <button
+                        onClick={() => handleOpenEditDue("receivable", item)}
+                        style={styles.iconButtonSmall}
+                      >
+                        <Edit size={14} />
+                      </button>
+                      <button
+                        onClick={() =>
+                          handleDeleteDue("receivable", item.id, item.name)
+                        }
+                        style={styles.deleteButtonSmall}
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                      <button
+                        onClick={() =>
+                          setPaymentModal({ type: "receive", item })
+                        }
+                        style={styles.payButtonGreen}
+                      >
+                        <CheckCircle2 size={16} />
+                      </button>
+                    </div>
                   </div>
                 ))
               ) : (
@@ -473,6 +586,7 @@ function Finance() {
               <strong>{totalReceivables.toLocaleString()}</strong>
             </div>
           </div>
+
           {/* หนี้สิน (ขวา) */}
           <div style={styles.section}>
             <div style={styles.sectionHeader}>
@@ -494,12 +608,28 @@ function Finance() {
                         {item.amount.toLocaleString()}
                       </strong>
                     </div>
-                    <button
-                      onClick={() => setPaymentModal({ type: "pay", item })}
-                      style={styles.payButtonRed}
-                    >
-                      <Circle size={16} />
-                    </button>
+                    <div style={styles.dueActions}>
+                      <button
+                        onClick={() => handleOpenEditDue("liability", item)}
+                        style={styles.iconButtonSmall}
+                      >
+                        <Edit size={14} />
+                      </button>
+                      <button
+                        onClick={() =>
+                          handleDeleteDue("liability", item.id, item.name)
+                        }
+                        style={styles.deleteButtonSmall}
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                      <button
+                        onClick={() => setPaymentModal({ type: "pay", item })}
+                        style={styles.payButtonRed}
+                      >
+                        <Circle size={16} />
+                      </button>
+                    </div>
                   </div>
                 ))
               ) : (
@@ -515,14 +645,14 @@ function Finance() {
           </div>
         </div>
 
-        {/* --- 4. ปุ่มสรุปผล --- */}
+        {/* --- 4. ปุ่มสรุปผล (เหมือนเดิม) --- */}
         <Link to="/finance-summary" style={styles.summaryButton}>
           <BarChart2 size={18} />
           ดูสรุปผลประจำเดือน
         </Link>
       </div>{" "}
       {/* จบ Scroll Area */}
-      {/* 5. Sticky Footer */}
+      {/* 5. Sticky Footer (เหมือนเดิม) */}
       <div style={styles.stickyFooter}>
         <button
           onClick={() => setIsTxModalOpen("income")}
@@ -541,22 +671,43 @@ function Finance() {
       {isAddingAccount && (
         <AddAccountModal onClose={() => setIsAddingAccount(false)} />
       )}
+      {/* (ใหม่) Modal แก้ไขบัญชี */}
+      {accountToEdit && (
+        <EditAccountModal
+          account={accountToEdit}
+          onClose={() => setAccountToEdit(null)}
+        />
+      )}
       {isAddingLiability && (
         <AddDueModal
           type="liability"
           onClose={() => setIsAddingLiability(false)}
+          tags={tags}
+          onNavigateToTags={() => navigate("/tag-manager")}
         />
       )}
       {isAddingReceivable && (
         <AddDueModal
           type="receivable"
           onClose={() => setIsAddingReceivable(false)}
+          tags={tags}
+          onNavigateToTags={() => navigate("/tag-manager")}
+        />
+      )}
+      {dueToEdit && (
+        <AddDueModal
+          type={dueToEdit.type}
+          itemToEdit={dueToEdit.item}
+          onClose={() => setDueToEdit(null)}
+          tags={tags}
+          onNavigateToTags={() => navigate("/tag-manager")}
         />
       )}
       {paymentModal && (
         <PaymentModal
           info={paymentModal}
           accounts={accounts}
+          budgets={budgets}
           onClose={() => setPaymentModal(null)}
         />
       )}
@@ -579,6 +730,7 @@ function Finance() {
           onClose={() => setBudgetAddModal(null)}
         />
       )}
+      {/* (อัปเดต) ส่ง Props สูตรใหม่ไป TransactionModal */}
       {isTxModalOpen && (
         <TransactionModal
           type={isTxModalOpen}
@@ -589,16 +741,20 @@ function Finance() {
           onNavigateToTags={() => navigate("/tag-manager")}
           dailySpendable={dailySpendable}
           totalAssets={totalAssets}
+          totalReceivables={totalReceivables} // (ใหม่)
+          totalLiabilities={totalLiabilities} // (ใหม่)
           totalRemainingBudgets={totalRemainingBudgets}
-          fixedExpense={fixedExpense}
+          fixedExpense={estimatedFixedExpense} // (ใช้ชื่อ
+          paidFixedThisMonth={paidFixedThisMonth} // (ใหม่)
         />
       )}
-      {/* (อัปเดต) ส่ง 'lastMonthFixedTotal' ไป */}
+      {/* (อัปเดต) ส่ง Props ไป FixedExpenseModal */}
       {isFixedExpenseModalOpen && (
         <FixedExpenseModal
           settings={settings}
           onClose={() => setIsFixedExpenseModalOpen(false)}
           lastMonthFixedTotal={lastMonthFixedTotal}
+          paidFixedThisMonth_Auto={paidFixedThisMonth_Auto} // (ใหม่)
         />
       )}
     </div>
@@ -617,8 +773,11 @@ function TransactionModal({
   onNavigateToTags,
   dailySpendable,
   totalAssets,
+  totalReceivables, // (ใหม่)
+  totalLiabilities, // (ใหม่)
   totalRemainingBudgets,
-  fixedExpense,
+  fixedExpense, // (นี่คือ 'estimatedFixedExpense')
+  paidFixedThisMonth, // (ใหม่)
 }) {
   const isExpense = type === "expense";
   const title = isExpense ? "บันทึกรายจ่าย" : "บันทึกรายรับ";
@@ -650,17 +809,30 @@ function TransactionModal({
       return;
     }
 
-    // (Alert System - เหมือนเดิม)
+    // (อัปเดต) Alert System (ใช้สูตรใหม่)
     if (isExpense && classification === "variable") {
       const newDailyUsed = dailySpendable.used + numAmount;
       if (newDailyUsed > dailySpendable.limit) {
+        // (คำนวณวงเงินวันพรุ่งนี้ใหม่ตามสูตร)
         const tomorrowRemainingDays = Math.max(
           1,
           dailySpendable.remainingDays - 1
         );
-        const newTotalAssets = totalAssets - numAmount;
+
+        // (ใหม่) เงินตั้งต้นใหม่ (Net Assets) หลังหัก
+        const newNetAssets =
+          totalAssets - numAmount + totalReceivables - totalLiabilities;
+
+        // (ใหม่) Fixed ที่ยังต้องจ่าย
+        const remainingFixedToPay = Math.max(
+          0,
+          fixedExpense - paidFixedThisMonth
+        );
+
+        // (ใหม่) เงินที่เหลือให้ใช้
         const newAvailableToSpend =
-          newTotalAssets - totalRemainingBudgets - fixedExpense;
+          newNetAssets - totalRemainingBudgets - remainingFixedToPay;
+
         const tomorrowLimit = Math.max(
           0,
           newAvailableToSpend / tomorrowRemainingDays
@@ -849,32 +1021,55 @@ function TransactionModal({
 // =======================================================
 // === (อัปเดต) Component: Modal ตั้งค่า Fixed Expense ===
 // =======================================================
-function FixedExpenseModal({ settings, onClose, lastMonthFixedTotal }) {
-  const [mode, setMode] = useState(
+function FixedExpenseModal({
+  settings,
+  onClose,
+  lastMonthFixedTotal,
+  paidFixedThisMonth_Auto,
+}) {
+  // (เดิม) State สำหรับ "ยอดประมาณการ"
+  const [estimateMode, setEstimateMode] = useState(
     settings.find((s) => s.key === "fixedExpenseMode")?.value || "manual"
   );
-  const [amount, setAmount] = useState(
+  const [estimateAmount, setEstimateAmount] = useState(
     settings.find((s) => s.key === "manualFixedExpense")?.value || 10000
   );
 
-  // (ใหม่) เช็คว่ามีข้อมูลเดือนที่แล้วหรือไม่ (null = ไม่มี, 0 หรือ > 0 = มี)
+  // (ใหม่) State สำหรับ "ยอดจ่ายแล้ว"
+  const [paidMode, setPaidMode] = useState(
+    settings.find((s) => s.key === "paidFixedMode")?.value || "auto"
+  );
+  const [paidAmount, setPaidAmount] = useState(
+    settings.find((s) => s.key === "manualPaidFixedThisMonth")?.value || 0
+  );
+
+  // (เดิม) เช็คว่ามีข้อมูลเดือนที่แล้ว (สำหรับ Estimate)
   const hasLastMonthData = lastMonthFixedTotal !== null;
 
   const handleSave = async () => {
-    // (ใหม่) ตรวจสอบ
-    if (mode === "auto" && !hasLastMonthData) {
+    // (เดิม) ตรวจสอบ Estimate
+    if (estimateMode === "auto" && !hasLastMonthData) {
       alert(
-        "ไม่สามารถเลือกโหมดอัตโนมัติได้ เพราะยังไม่มีข้อมูลของเดือนที่แล้ว"
+        "ไม่สามารถเลือกโหมดอัตโนมัติ (สำหรับยอดประมาณการ) ได้ เพราะยังไม่มีข้อมูลของเดือนที่แล้ว"
       );
       return;
     }
 
     try {
-      await db.settings.put({ key: "fixedExpenseMode", value: mode });
+      // (เดิม) บันทึก "ยอดประมาณการ"
+      await db.settings.put({ key: "fixedExpenseMode", value: estimateMode });
       await db.settings.put({
         key: "manualFixedExpense",
-        value: Number(amount),
+        value: Number(estimateAmount),
       });
+
+      // (ใหม่) บันทึก "ยอดจ่ายแล้ว"
+      await db.settings.put({ key: "paidFixedMode", value: paidMode });
+      await db.settings.put({
+        key: "manualPaidFixedThisMonth",
+        value: Number(paidAmount),
+      });
+
       onClose();
     } catch (e) {
       console.error("Failed to save settings:", e);
@@ -891,19 +1086,20 @@ function FixedExpenseModal({ settings, onClose, lastMonthFixedTotal }) {
           </button>
         </div>
         <div style={styles.modalForm}>
-          <p style={{ fontSize: "0.9rem", color: "#aaa" }}>
-            ค่านี้ใช้เพื่อ "ประมาณการ" เงินที่ใช้ได้ต่อวัน (จะไม่หักเงินจริง)
-          </p>
+          {/* --- 1. ส่วนประมาณการ (Estimate) --- */}
           <div style={styles.inputGroup}>
-            <label>โหมด</label>
+            <label style={{ fontWeight: "bold", fontSize: "1.1rem" }}>
+              1. ยอดประมาณการ (ทั้งเดือน)
+            </label>
+            <p style={styles.helpText}>
+              ตั้งค่าว่าคุณ "คาดว่า" จะมีรายจ่ายคงที่ทั้งเดือนเท่าไหร่
+            </p>
             <select
-              value={mode}
-              onChange={(e) => setMode(e.target.value)}
+              value={estimateMode}
+              onChange={(e) => setEstimateMode(e.target.value)}
               style={styles.select}
             >
               <option value="manual">กำหนดเอง</option>
-
-              {/* (อัปเดต) เปิด/ปิด ปุ่ม Auto */}
               <option value="auto" disabled={!hasLastMonthData}>
                 อัตโนมัติ
                 {hasLastMonthData
@@ -912,17 +1108,52 @@ function FixedExpenseModal({ settings, onClose, lastMonthFixedTotal }) {
               </option>
             </select>
           </div>
-          {mode === "manual" && (
+          {estimateMode === "manual" && (
             <div style={styles.inputGroup}>
-              <label>จำนวนเงิน (รายจ่ายคงที่/เดือน)</label>
+              <label>จำนวนเงิน (ประมาณการ/เดือน)</label>
               <input
                 type="number"
-                value={amount}
-                onChange={(e) => setAmount(e.target.value)}
+                value={estimateAmount}
+                onChange={(e) => setEstimateAmount(e.target.value)}
                 style={styles.input}
               />
             </div>
           )}
+
+          <hr style={styles.hr} />
+
+          {/* --- 2. ส่วนจ่ายแล้ว (Paid) --- */}
+          <div style={styles.inputGroup}>
+            <label style={{ fontWeight: "bold", fontSize: "1.1rem" }}>
+              2. ยอดที่จ่ายไปแล้ว (เดือนนี้)
+            </label>
+            <p style={styles.helpText}>
+              ตั้งค่าว่า "ตอนนี้" คุณจ่ายรายจ่ายคงที่ไปแล้วเท่าไหร่
+            </p>
+            <select
+              value={paidMode}
+              onChange={(e) => setPaidMode(e.target.value)}
+              style={styles.select}
+            >
+              <option value="auto">
+                อัตโนมัติ (จากระบบ:{" "}
+                {(paidFixedThisMonth_Auto || 0).toLocaleString()})
+              </option>
+              <option value="manual">กำหนดเอง (แก้ไข)</option>
+            </select>
+          </div>
+          {paidMode === "manual" && (
+            <div style={styles.inputGroup}>
+              <label>จำนวนเงิน (ที่จ่ายไปแล้ว)</label>
+              <input
+                type="number"
+                value={paidAmount}
+                onChange={(e) => setPaidAmount(e.target.value)}
+                style={styles.input}
+              />
+            </div>
+          )}
+
           <button onClick={handleSave} style={styles.saveButton}>
             บันทึก
           </button>
@@ -932,11 +1163,13 @@ function FixedExpenseModal({ settings, onClose, lastMonthFixedTotal }) {
   );
 }
 
-// (Component 'BudgetManagerModal' - อัปเดต)
+// ===================================================================
+// === (อัปเดต) Component: 'BudgetManagerModal' (เหมือนเดิม) ===
+// ===================================================================
 function BudgetManagerModal({ budgets, onClose }) {
   const [newName, setNewName] = useState("");
-  const [editName, setEditName] = useState("");
-  const [editingId, setEditingId] = useState(null);
+  const [editingBudget, setEditingBudget] = useState(null);
+
   const handleAdd = async () => {
     if (!newName.trim()) return;
     const now = new Date();
@@ -958,6 +1191,7 @@ function BudgetManagerModal({ budgets, onClose }) {
       if (e.name === "ConstraintError") alert("มีชื่อนี้อยู่แล้ว");
     }
   };
+
   const handleDelete = async (id, name) => {
     if (BUDGET_CATEGORIES.some((c) => c.key === name)) {
       alert(`ไม่สามารถลบหมวดหมู่ "${getBudgetName(name)}" ได้`);
@@ -967,81 +1201,159 @@ function BudgetManagerModal({ budgets, onClose }) {
       await db.budgets.delete(id);
     }
   };
-  const handleRename = async () => {
-    if (!editName.trim()) return;
+
+  return (
+    <>
+      <div style={styles.modalOverlay}>
+        <div style={styles.modalContent}>
+          <div style={styles.modalHeader}>
+            <h3>จัดการงบประมาณ</h3>
+            <button onClick={onClose} style={styles.closeButton}>
+              <X size={24} />
+            </button>
+          </div>
+          <div style={styles.inputGroup} className="modalForm">
+            <label>เพิ่มงบประมาณใหม่</label>
+            <div style={styles.budgetInputBox}>
+              <input
+                type="text"
+                value={newName}
+                onChange={(e) => setNewName(e.target.value)}
+                style={styles.input}
+                placeholder="เช่น 'ท่องเที่ยว'"
+              />
+              <button onClick={handleAdd} style={styles.saveButton}>
+                <Plus size={18} />
+              </button>
+            </div>
+          </div>
+          <hr style={styles.hr} />
+          <div style={styles.budgetManagerList}>
+            {budgets.map((b) => (
+              <div key={b.id} style={styles.budgetItem}>
+                <span>{getBudgetName(b.name)}</span>
+                <div style={styles.budgetAdminButtons}>
+                  <button
+                    onClick={() => {
+                      setEditingBudget(b);
+                    }}
+                    style={styles.iconButton}
+                  >
+                    <Edit size={16} />
+                  </button>
+                  <button
+                    onClick={() => handleDelete(b.id, b.name)}
+                    style={styles.deleteButton}
+                    disabled={BUDGET_CATEGORIES.some((c) => c.key === b.name)}
+                  >
+                    <Trash2 size={16} />
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {editingBudget && (
+        <EditBudgetModal
+          budget={editingBudget}
+          onClose={() => setEditingBudget(null)}
+        />
+      )}
+    </>
+  );
+}
+
+// ==============================================================
+// === (อัปเดต) Component: 'EditBudgetModal' (เหมือนเดิม) ===
+// ==============================================================
+function EditBudgetModal({ budget, onClose }) {
+  const isDefault = useMemo(
+    () => BUDGET_CATEGORIES.some((c) => c.key === budget.name),
+    [budget.name]
+  );
+
+  const [name, setName] = useState(budget.name);
+  const [totalAmount, setTotalAmount] = useState(budget.totalAmount);
+  const [currentAmount, setCurrentAmount] = useState(budget.currentAmount);
+
+  const handleSave = async () => {
+    const numTotal = Number(totalAmount);
+    const numCurrent = Number(currentAmount);
+
+    if (numTotal < 0 || numCurrent < 0) {
+      alert("ยอดเงินห้ามติดลบ");
+      return;
+    }
+    if (numCurrent > numTotal) {
+      alert("ยอดใช้ (Current) ต้องไม่มากกว่ายอดเพดาน (Total)");
+      return;
+    }
+    if (!isDefault && !name.trim()) {
+      alert("กรุณาใส่ชื่อ");
+      return;
+    }
+
     try {
-      await db.budgets.update(editingId, { name: editName });
-      setEditingId(null);
-      setEditName("");
+      const updates = {
+        totalAmount: numTotal,
+        currentAmount: numCurrent,
+      };
+
+      if (!isDefault) {
+        updates.name = name;
+      }
+
+      await db.budgets.update(budget.id, updates);
+      onClose();
     } catch (e) {
       if (e.name === "ConstraintError") alert("มีชื่อนี้อยู่แล้ว");
+      console.error("Failed to update budget:", e);
     }
   };
+
   return (
     <div style={styles.modalOverlay}>
       <div style={styles.modalContent}>
         <div style={styles.modalHeader}>
-          <h3>จัดการงบประมาณ</h3>
+          <h3>แก้ไขงบประมาณ</h3>
           <button onClick={onClose} style={styles.closeButton}>
             <X size={24} />
           </button>
         </div>
-        <div style={styles.inputGroup} className="modalForm">
-          <label>เพิ่มงบประมาณใหม่</label>
-          <div style={styles.budgetInputBox}>
+        <div style={styles.modalForm}>
+          <div style={styles.inputGroup}>
+            <label>ชื่อ</label>
             <input
               type="text"
-              value={newName}
-              onChange={(e) => setNewName(e.target.value)}
+              value={isDefault ? getBudgetName(name) : name}
+              onChange={(e) => setName(e.target.value)}
               style={styles.input}
-              placeholder="เช่น 'ท่องเที่ยว'"
+              disabled={isDefault}
             />
-            <button onClick={handleAdd} style={styles.saveButton}>
-              <Plus size={18} />
-            </button>
           </div>
-        </div>
-        <hr style={styles.hr} />
-        <div style={styles.budgetManagerList}>
-          {budgets.map((b) => (
-            <div key={b.id} style={styles.budgetItem}>
-              {editingId === b.id ? (
-                <div style={styles.budgetInputBox}>
-                  <input
-                    type="text"
-                    value={editName}
-                    onChange={(e) => setEditName(e.target.value)}
-                    style={styles.input}
-                  />
-                  <button onClick={handleRename} style={styles.saveButton}>
-                    <CheckCircle2 size={18} />
-                  </button>
-                </div>
-              ) : (
-                <>
-                  <span>{getBudgetName(b.name)}</span>
-                  <div style={styles.budgetAdminButtons}>
-                    <button
-                      onClick={() => {
-                        setEditingId(b.id);
-                        setEditName(b.name);
-                      }}
-                      style={styles.iconButton}
-                    >
-                      <Edit size={16} />
-                    </button>
-                    <button
-                      onClick={() => handleDelete(b.id, b.name)}
-                      style={styles.deleteButton}
-                      disabled={BUDGET_CATEGORIES.some((c) => c.key === b.name)}
-                    >
-                      <Trash2 size={16} />
-                    </button>
-                  </div>
-                </>
-              )}
-            </div>
-          ))}
+          <div style={styles.inputGroup}>
+            <label>เพดานงบ (Total Amount)</label>
+            <input
+              type="number"
+              value={totalAmount}
+              onChange={(e) => setTotalAmount(e.target.value)}
+              style={styles.input}
+            />
+          </div>
+          <div style={styles.inputGroup}>
+            <label>ใช้ไปแล้ว (Current Amount)</label>
+            <input
+              type="number"
+              value={currentAmount}
+              onChange={(e) => setCurrentAmount(e.target.value)}
+              style={styles.input}
+            />
+          </div>
+          <button onClick={handleSave} style={styles.saveButton}>
+            <CheckCircle2 size={18} /> บันทึกการแก้ไข
+          </button>
         </div>
       </div>
     </div>
@@ -1227,36 +1539,141 @@ function AddAccountModal({ onClose }) {
   );
 }
 
-// (Component 'AddDueModal' - เหมือนเดิม)
-function AddDueModal({ type, onClose }) {
-  const isLiability = type === "liability";
-  const title = isLiability ? "เพิ่มหนี้สิน" : "เพิ่มค้างรับ";
-  const [name, setName] = useState("");
-  const [amount, setAmount] = useState(0);
+// ==============================================================
+// === (ใหม่) Component: 'EditAccountModal' (สำหรับแก้ไขบัญชี) ===
+// ==============================================================
+function EditAccountModal({ account, onClose }) {
+  const [name, setName] = useState(account.name);
+  const [balance, setBalance] = useState(account.balance);
+
   const handleSubmit = async () => {
-    if (!name || amount <= 0) {
-      alert("กรุณากรอกชื่อ และยอดเงิน (ต้องมากกว่า 0)");
+    if (!name || balance < 0) {
+      alert("กรุณากรอกชื่อ และยอดเงิน (ห้ามติดลบ)");
       return;
     }
     try {
-      if (isLiability) {
-        await db.liabilities.add({
-          name: name,
-          amount: Number(amount),
-          status: "outstanding",
-        });
+      await db.accounts.update(account.id, {
+        name: name,
+        balance: Number(balance),
+      });
+      onClose();
+    } catch (error) {
+      console.error("Failed to update account:", error);
+    }
+  };
+
+  return (
+    <div style={styles.modalOverlay}>
+      <div style={styles.modalContent}>
+        <div style={styles.modalHeader}>
+          <h3>แก้ไขบัญชี</h3>
+          <button onClick={onClose} style={styles.closeButton}>
+            <X size={24} />
+          </button>
+        </div>
+        <div style={styles.modalForm}>
+          <div style={styles.inputGroup}>
+            <label>ชื่อบัญชี</label>
+            <input
+              type="text"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              style={styles.input}
+            />
+          </div>
+          <div style={styles.inputGroup}>
+            <label>ยอดเงินคงเหลือ</label>
+            <input
+              type="number"
+              value={balance}
+              onChange={(e) => setBalance(e.target.value)}
+              style={styles.input}
+            />
+          </div>
+          <button onClick={handleSubmit} style={styles.saveButton}>
+            <CheckCircle2 size={18} /> บันทึกการแก้ไข
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ==============================================================
+// === (อัปเดต) Component: 'AddDueModal' (เหมือนเดิม) ===
+// ==============================================================
+function AddDueModal({
+  type,
+  onClose,
+  tags,
+  onNavigateToTags,
+  itemToEdit = null,
+}) {
+  const isLiability = type === "liability";
+  const isEditMode = itemToEdit !== null;
+
+  const title = isEditMode
+    ? isLiability
+      ? "แก้ไขหนี้สิน"
+      : "แก้ไขค้างรับ"
+    : isLiability
+    ? "เพิ่มหนี้สิน"
+    : "เพิ่มค้างรับ";
+
+  const [name, setName] = useState(itemToEdit?.name || "");
+  const [amount, setAmount] = useState(itemToEdit?.amount || 0);
+  const [tagId, setTagId] = useState(itemToEdit?.tagId || "");
+  const [classification, setClassification] = useState(
+    itemToEdit?.classification || (isLiability ? "fixed" : "active")
+  );
+
+  const relevantTags = useMemo(() => {
+    const tagType = isLiability ? "expense" : "income";
+    return tags.filter((t) => t.type === tagType);
+  }, [tags, isLiability]);
+
+  const handleSubmit = async () => {
+    const numAmount = Number(amount);
+    if (!name || numAmount <= 0) {
+      alert("กรุณากรอกชื่อ และยอดเงิน (ต้องมากกว่า 0)");
+      return;
+    }
+    if (!tagId) {
+      alert("กรุณาเลือกแท็ก");
+      return;
+    }
+
+    const data = {
+      name: name,
+      amount: numAmount,
+      tagId: Number(tagId),
+      classification: classification,
+      status: isLiability ? "outstanding" : "pending",
+    };
+
+    try {
+      if (isEditMode) {
+        if (isLiability) {
+          await db.liabilities.update(itemToEdit.id, data);
+        } else {
+          await db.receivables.update(itemToEdit.id, data);
+        }
       } else {
-        await db.receivables.add({
-          name: name,
-          amount: Number(amount),
-          status: "pending",
-        });
+        if (isLiability) {
+          await db.liabilities.add(data);
+        } else {
+          await db.receivables.add(data);
+        }
       }
       onClose();
     } catch (error) {
-      console.error(`Failed to add ${type}:`, error);
+      console.error(
+        `Failed to ${isEditMode ? "update" : "add"} ${type}:`,
+        error
+      );
     }
   };
+
   return (
     <div style={styles.modalOverlay}>
       <div style={styles.modalContent}>
@@ -1285,8 +1702,54 @@ function AddDueModal({ type, onClose }) {
               style={styles.input}
             />
           </div>
+
+          <div style={styles.inputGroup}>
+            <label>ประเภท (Type)</label>
+            <select
+              value={classification}
+              onChange={(e) => setClassification(e.target.value)}
+              style={styles.select}
+            >
+              {isLiability ? (
+                <>
+                  <option value="fixed">รายจ่ายคงที่</option>
+                  <option value="variable">รายจ่ายไม่คงที่</option>
+                </>
+              ) : (
+                <>
+                  <option value="active">Active Income</option>
+                  <option value="passive">Passive Income</option>
+                </>
+              )}
+            </select>
+          </div>
+
+          <div style={styles.inputGroup}>
+            <label>แท็ก (Tag)</label>
+            <div style={styles.budgetInputBox}>
+              <select
+                value={tagId}
+                onChange={(e) => setTagId(e.target.value)}
+                style={styles.select}
+              >
+                <option value="" disabled>
+                  -- เลือกแท็ก --
+                </option>
+                {relevantTags.map((tag) => (
+                  <option key={tag.id} value={tag.id}>
+                    {tag.name}
+                  </option>
+                ))}
+              </select>
+              <button onClick={onNavigateToTags} style={styles.editButton}>
+                <Edit size={18} />
+              </button>
+            </div>
+          </div>
+
           <button onClick={handleSubmit} style={styles.saveButton}>
-            <Plus size={18} /> บันทึก
+            {isEditMode ? <CheckCircle2 size={18} /> : <Plus size={18} />}
+            บันทึก
           </button>
         </div>
       </div>
@@ -1294,20 +1757,41 @@ function AddDueModal({ type, onClose }) {
   );
 }
 
-// (Component 'PaymentModal' - เหมือนเดิม)
-function PaymentModal({ info, accounts, onClose }) {
+// =======================================================
+// === (อัปเดต) Component: 'PaymentModal' (เหมือนเดิม) ===
+// =======================================================
+function PaymentModal({ info, accounts, budgets, onClose }) {
   const { type, item } = info;
   const isPaying = type === "pay";
   const title = isPaying ? `จ่ายหนี้: ${item.name}` : `รับเงิน: ${item.name}`;
+
   const [accountId, setAccountId] = useState(accounts[0]?.id || "");
+  const [distributeIncome, setDistributeIncome] = useState(true);
+
   const handleSubmit = async () => {
     if (!accountId) {
       alert("กรุณาเลือกบัญชีที่จะใช้");
       return;
     }
+
+    const tagId = item.tagId;
+    if (!tagId) {
+      alert(
+        "เกิดข้อผิดพลาด: ไม่พบ Tag ID ในรายการนี้ (กรุณาลองลบและเพิ่มใหม่)"
+      );
+      return;
+    }
+
+    const classification = item.classification;
+    if (!classification) {
+      alert("เกิดข้อผิดพลาด: ไม่พบ Classification (กรุณาลองลบและเพิ่มใหม่)");
+      return;
+    }
+
     try {
       const account = await db.accounts.get(Number(accountId));
       if (!account) throw new Error("Account not found");
+
       if (isPaying) {
         if (account.balance < item.amount) {
           alert("เงินในบัญชีไม่พอ!");
@@ -1317,18 +1801,59 @@ function PaymentModal({ info, accounts, onClose }) {
           balance: account.balance - item.amount,
         });
         await db.liabilities.update(item.id, { status: "paid" });
+
+        await db.transactions.add({
+          timestamp: new Date().toISOString(),
+          type: "expense",
+          amount: item.amount,
+          accountId: Number(accountId),
+          tagId: tagId,
+          classification: classification,
+        });
       } else {
         await db.accounts.update(account.id, {
           balance: account.balance + item.amount,
         });
         await db.receivables.update(item.id, { status: "received" });
+
+        await db.transactions.add({
+          timestamp: new Date().toISOString(),
+          type: "income",
+          amount: item.amount,
+          accountId: Number(accountId),
+          tagId: tagId,
+          classification: classification,
+        });
+
+        if (distributeIncome) {
+          const distributionAmount = item.amount * 0.1;
+          const defaultBudgetKeys = [
+            "giving",
+            "investing",
+            "education",
+            "rewards",
+            "saving",
+          ];
+          const budgetsToUpdate = budgets.filter((b) =>
+            defaultBudgetKeys.includes(b.name)
+          );
+          const updates = budgetsToUpdate.map((budget) => ({
+            key: budget.id,
+            changes: { totalAmount: budget.totalAmount + distributionAmount },
+          }));
+          if (updates.length > 0) {
+            await db.budgets.bulkUpdate(updates);
+          }
+        }
       }
+
       onClose();
     } catch (error) {
       console.error(`Failed to ${type}:`, error);
       alert(`เกิดข้อผิดพลาด: ${error.message}`);
     }
   };
+
   return (
     <div style={styles.modalOverlay}>
       <div style={styles.modalContent}>
@@ -1367,6 +1892,21 @@ function PaymentModal({ info, accounts, onClose }) {
               ))}
             </select>
           </div>
+
+          {!isPaying && (
+            <div style={styles.checkboxGroup}>
+              <input
+                type="checkbox"
+                id="distributeIncome"
+                checked={distributeIncome}
+                onChange={(e) => setDistributeIncome(e.target.checked)}
+              />
+              <label htmlFor="distributeIncome" style={styles.checkboxLabel}>
+                แบ่ง 10% (x5) เข้าเพดานงบประมาณ
+              </label>
+            </div>
+          )}
+
           <button
             onClick={handleSubmit}
             style={isPaying ? styles.txButtonRed : styles.txButtonGreen}
@@ -1379,7 +1919,8 @@ function PaymentModal({ info, accounts, onClose }) {
   );
 }
 
-// === CSS Styles (เหมือนเดิม) ===
+// === CSS Styles (อัปเดต) ===
+// (เพิ่ม helpText style)
 const styles = {
   page: {
     display: "flex",
@@ -1565,6 +2106,30 @@ const styles = {
     flexDirection: "column",
     fontSize: "0.9rem",
     gap: "2px",
+    maxWidth: "50%",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+  },
+  dueActions: {
+    display: "flex",
+    alignItems: "center",
+    gap: "5px",
+    flexShrink: 0,
+  },
+  iconButtonSmall: {
+    background: "none",
+    border: "none",
+    color: "#aaa",
+    cursor: "pointer",
+    padding: "5px",
+  },
+  deleteButtonSmall: {
+    background: "none",
+    border: "none",
+    color: "#aaa",
+    cursor: "pointer",
+    padding: "5px",
   },
   payButtonGreen: {
     background: "#3a8b3a",
@@ -1674,6 +2239,7 @@ const styles = {
     padding: "20px",
     width: "100%",
     maxWidth: "400px",
+    zIndex: 201,
   },
   modalHeader: {
     display: "flex",
@@ -1701,6 +2267,12 @@ const styles = {
     flexDirection: "column",
     gap: "5px",
   },
+  // (ใหม่)
+  helpText: {
+    fontSize: "0.9rem",
+    color: "#aaa",
+    margin: "-10px 0 0 0",
+  },
   input: {
     width: "100%",
     padding: "10px",
@@ -1710,6 +2282,10 @@ const styles = {
     color: "white",
     fontSize: "1rem",
     boxSizing: "border-box",
+  },
+  "input:disabled": {
+    backgroundColor: "#444",
+    color: "#999",
   },
   select: {
     width: "100%",

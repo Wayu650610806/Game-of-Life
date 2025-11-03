@@ -3,10 +3,10 @@ import Dexie from "dexie";
 
 export const db = new Dexie("gameOfLifeApp");
 
-// === START CHANGE: อัปเดต Version 20 ===
+// === START CHANGE: อัปเดต Version 22 ===
 
-// v.20 (Latest)
-db.version(20).stores({
+// v.22 (Latest)
+db.version(22).stores({
   userProfile:
     "++id, name, birthday, level, money, weight, height, activityLevel, goal",
   activities: "++id, name, level",
@@ -16,20 +16,21 @@ db.version(20).stores({
     "++id, type, status, startTime, endTime, name, detail, difficulty, reward, penalty",
   penalties: "++id, name",
   dreams: "++id, name, imageUrl, targetDate, status",
-
-  // (อัปเดต) เพิ่ม habitId, habitLevel
   mailbox:
     "++id, timestamp, &isRead, type, message, activityName, levelDrop, penaltyName, activityStartTime, activityEndTime, activityId, activityLevel, userLevel, taskId, taskReward, taskPenalty, habitId, habitLevel",
 
   shopItems: "++id, name, detail, rank, price, imageUrl",
   accounts: "++id, name, balance",
-  liabilities: "++id, name, amount, status",
-  receivables: "++id, name, amount, status",
+  liabilities: "++id, name, amount, status, tagId, classification",
+  receivables: "++id, name, amount, status, tagId, classification",
   budgets: "++id, &name, currentAmount, totalAmount, lastReset, icon",
   tags: "++id, &name, type",
   transactions:
     "++id, timestamp, type, amount, accountId, tagId, classification",
+
+  // (อัปเดต) เพิ่ม paidFixedMode และ manualPaidFixedThisMonth
   settings: "key, value",
+
   dailyMacros:
     "date, consumedCalories, consumedProtein, consumedFat, consumedCarbs, consumedWater",
   foodLibrary:
@@ -40,14 +41,11 @@ db.version(20).stores({
     "++id, exerciseSetId, exerciseMasterId, templateSets, templateReps, templateWeight, templateDuration",
   dailyExerciseRoutines: "dayOfWeek, exerciseSetIdOdd, exerciseSetIdEven",
   exerciseLog: "++id, date, exerciseMasterId, sets, reps, weight, duration",
-
-  // (ใหม่) ตารางนิสัยที่อยากเลิก
   badHabits: "++id, &name, level, lastFailedTimestamp",
 });
 
-// v.19 (Previous)
-// (นี่คือเวอร์ชันที่คุณมีอยู่)
-db.version(19).stores({
+// v.21 (Previous)
+db.version(21).stores({
   userProfile:
     "++id, name, birthday, level, money, weight, height, activityLevel, goal",
   activities: "++id, name, level",
@@ -58,11 +56,11 @@ db.version(19).stores({
   penalties: "++id, name",
   dreams: "++id, name, imageUrl, targetDate, status",
   mailbox:
-    "++id, timestamp, &isRead, type, message, activityName, levelDrop, penaltyName, activityStartTime, activityEndTime, activityId, activityLevel, userLevel, taskId, taskReward, taskPenalty",
+    "++id, timestamp, &isRead, type, message, activityName, levelDrop, penaltyName, activityStartTime, activityEndTime, activityId, activityLevel, userLevel, taskId, taskReward, taskPenalty, habitId, habitLevel",
   shopItems: "++id, name, detail, rank, price, imageUrl",
   accounts: "++id, name, balance",
-  liabilities: "++id, name, amount, status",
-  receivables: "++id, name, amount, status",
+  liabilities: "++id, name, amount, status, tagId, classification",
+  receivables: "++id, name, amount, status, tagId, classification",
   budgets: "++id, &name, currentAmount, totalAmount, lastReset, icon",
   tags: "++id, &name, type",
   transactions:
@@ -78,9 +76,10 @@ db.version(19).stores({
     "++id, exerciseSetId, exerciseMasterId, templateSets, templateReps, templateWeight, templateDuration",
   dailyExerciseRoutines: "dayOfWeek, exerciseSetIdOdd, exerciseSetIdEven",
   exerciseLog: "++id, date, exerciseMasterId, sets, reps, weight, duration",
+  badHabits: "++id, &name, level, lastFailedTimestamp",
 });
 
-// ... (v.18 -> v.1 ... เหมือนเดิม)
+// ... (v.20 -> v.1 ... เหมือนเดิม)
 // ...
 
 // === END CHANGE ===
@@ -104,6 +103,8 @@ export const populateInitialExercises = async () => {
   if (count === 0) {
     console.log("Populating initial exercise data...");
     try {
+      // ... (ข้อมูล masterList, sets, setItems, scheduler ทั้งหมดเหมือนเดิม)
+      // ... (ละไว้เพื่อความกระชับ)
       const masterList = [
         { id: 1, name: "Bench Press (Barbell)", type: "reps" },
         { id: 2, name: "Seated Dumbbell OHP", type: "reps" },
