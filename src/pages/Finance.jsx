@@ -7,7 +7,6 @@ import {
   Plus,
   X,
   Wallet,
-  Banknote,
   Landmark,
   BarChart2,
   CheckCircle2,
@@ -23,7 +22,6 @@ import {
   Trash2,
   Edit,
   Info,
-  AlertTriangle,
 } from "lucide-react";
 
 // (Helper Functions ... ทั้งหมดเหมือนเดิม)
@@ -72,8 +70,7 @@ function Finance() {
       .toArray();
   }, []);
 
-  // 2. ดึงข้อมูล "เดือนที่แล้ว" และ "เดือนนี้"
-  // (อัปเดต) เพิ่ม currentMonthFirstDay
+  // 2. ดึงข้อมูล "เดือนที่แล้ว" และ "เดือนนี้" (เหมือนเดิม)
   const { lastMonthFirstDay, lastMonthLastDay, currentMonthFirstDay } =
     useMemo(() => {
       const now = new Date();
@@ -106,7 +103,7 @@ function Finance() {
     null
   );
 
-  // (ใหม่) ยอด Fixed ที่จ่ายไปแล้ว "เดือนนี้" (สำหรับ Auto-Paid)
+  // (เหมือนเดิม) ยอด Fixed ที่จ่ายไปแล้ว "เดือนนี้" (สำหรับ Auto-Paid)
   const paidFixedThisMonth_Auto = useLiveQuery(
     async () => {
       const txs = await db.transactions
@@ -114,14 +111,14 @@ function Finance() {
         .aboveOrEqual(currentMonthFirstDay)
         .filter((t) => t.type === "expense" && t.classification === "fixed")
         .toArray();
-      if (!txs || txs.length === 0) return 0; // คืนค่า 0 ถ้าไม่มี
+      if (!txs || txs.length === 0) return 0;
       return txs.reduce((sum, t) => sum + t.amount, 0);
     },
     [currentMonthFirstDay],
-    null // เริ่มต้นเป็น null (กำลังโหลด)
+    null
   );
 
-  // === 3. (อัปเดต) States ===
+  // === 3. (เหมือนเดิม) States ===
   const [isAddingAccount, setIsAddingAccount] = useState(false);
   const [accountToEdit, setAccountToEdit] = useState(null);
   const [isAddingLiability, setIsAddingLiability] = useState(false);
@@ -136,6 +133,7 @@ function Finance() {
 
   // 4. useEffect (Budgets Initialization - เหมือนเดิม)
   useEffect(() => {
+    // ... (เหมือนเดิม)
     const initializeBudgets = async () => {
       if (budgets && budgets.length === 0) {
         const now = new Date();
@@ -193,13 +191,13 @@ function Finance() {
     checkAndRolloverBudgets();
   }, [budgets]);
 
-  // 6. useEffect (Settings Initialization - อัปเดต)
+  // 6. useEffect (Settings Initialization - เหมือนเดิม)
   useEffect(() => {
+    // ... (เหมือนเดิม)
     const initializeSettings = async () => {
       if (!settings) return;
       const today = getTodayDateString();
 
-      // (เหมือนเดิม)
       const mode = settings.find((s) => s.key === "fixedExpenseMode");
       if (!mode) {
         await db.settings.put({ key: "fixedExpenseMode", value: "manual" });
@@ -209,7 +207,6 @@ function Finance() {
         await db.settings.put({ key: "manualFixedExpense", value: 10000 });
       }
 
-      // (ใหม่) เพิ่ม settings สำหรับ Paid Fixed
       const paidMode = settings.find((s) => s.key === "paidFixedMode");
       if (!paidMode) {
         await db.settings.put({ key: "paidFixedMode", value: "auto" });
@@ -221,7 +218,6 @@ function Finance() {
         await db.settings.put({ key: "manualPaidFixedThisMonth", value: 0 });
       }
 
-      // (เหมือนเดิม)
       const lastReset = settings.find(
         (s) => s.key === "dailySpendableLastReset"
       );
@@ -234,16 +230,25 @@ function Finance() {
     initializeSettings();
   }, [settings]);
 
-  // 7. คำนวณยอดรวม (เหมือนเดิม)
+  // 7. (อัปเดต) คำนวณยอดรวม (แยก หนี้สิน Fixed/Variable)
   const totalAssets = useMemo(
     () => (accounts ? accounts.reduce((sum, acc) => sum + acc.balance, 0) : 0),
     [accounts]
   );
-  const totalLiabilities = useMemo(
-    () =>
-      liabilities ? liabilities.reduce((sum, item) => sum + item.amount, 0) : 0,
-    [liabilities]
-  );
+
+  // (ใหม่) แยก Total Liabilities
+  const { totalLiabilities, totalVariableLiabilities } = useMemo(() => {
+    if (!liabilities)
+      return { totalLiabilities: 0, totalVariableLiabilities: 0 };
+
+    const total = liabilities.reduce((sum, item) => sum + item.amount, 0);
+    const variableTotal = liabilities
+      .filter((item) => item.classification === "variable") // กรองเฉพาะ
+      .reduce((sum, item) => sum + item.amount, 0);
+
+    return { totalLiabilities: total, totalVariableLiabilities: variableTotal };
+  }, [liabilities]);
+
   const totalReceivables = useMemo(
     () =>
       receivables ? receivables.reduce((sum, item) => sum + item.amount, 0) : 0,
@@ -257,9 +262,9 @@ function Finance() {
     );
   }, [budgets]);
 
-  // 8. (อัปเดต) คำนวณค่าใช้จ่ายคงที่
+  // 8. (เหมือนเดิม) คำนวณค่าใช้จ่ายคงที่
 
-  // 8a. (เหมือนเดิม) ยอด "ประมาณการ" Fixed ทั้งเดือน (จาก Manual หรือ Auto-last-month)
+  // 8a. ยอด "ประมาณการ" Fixed ทั้งเดือน (จาก Manual หรือ Auto-last-month)
   const estimatedFixedExpense = useMemo(() => {
     if (!settings) return 0;
     const mode =
@@ -270,13 +275,13 @@ function Finance() {
     return settings.find((s) => s.key === "manualFixedExpense")?.value || 0;
   }, [settings, lastMonthFixedTotal]);
 
-  // 8b. (ใหม่) ยอด Fixed ที่ "จ่ายไปแล้ว" เดือนนี้ (จาก Manual หรือ Auto-this-month)
+  // 8b. ยอด Fixed ที่ "จ่ายไปแล้ว" เดือนนี้ (จาก Manual หรือ Auto-this-month)
   const paidFixedThisMonth = useMemo(() => {
-    if (!settings || paidFixedThisMonth_Auto === null) return 0; // (รอโหลด)
+    if (!settings || paidFixedThisMonth_Auto === null) return 0;
     const mode =
       settings.find((s) => s.key === "paidFixedMode")?.value || "auto";
     if (mode === "auto") {
-      return paidFixedThisMonth_Auto; // (ค่าที่คำนวณจาก DB)
+      return paidFixedThisMonth_Auto;
     }
     return (
       settings.find((s) => s.key === "manualPaidFixedThisMonth")?.value || 0
@@ -290,9 +295,9 @@ function Finance() {
       !accounts ||
       !budgets ||
       !todayTransactions ||
-      !liabilities || // (ใหม่)
-      !receivables || // (ใหม่)
-      paidFixedThisMonth_Auto === null // (ใหม่)
+      !liabilities ||
+      !receivables ||
+      paidFixedThisMonth_Auto === null
     )
       return { limit: 0, used: 0, remainingDays: 1 };
 
@@ -303,10 +308,10 @@ function Finance() {
 
     // --- (อัปเดต) คำนวณตามสูตรใหม่ ---
 
-    // 1. (ใหม่) คำนวณเงินตั้งต้น (Net Assets)
-    const netAssets = totalAssets + totalReceivables - totalLiabilities;
+    // 1. (ใหม่) คำนวณเงินตั้งต้น (Net Assets) (ไม่รวม Fixed Liabilities)
+    const netAssets = totalAssets + totalReceivables - totalVariableLiabilities;
 
-    // 2. (ใหม่) คำนวณ Fixed ที่ "ยังเหลือต้องจ่าย"
+    // 2. (เหมือนเดิม) คำนวณ Fixed ที่ "ยังเหลือต้องจ่าย"
     const remainingFixedToPay = Math.max(
       0,
       estimatedFixedExpense - paidFixedThisMonth
@@ -316,7 +321,7 @@ function Finance() {
     const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0);
     const remainingDays = Math.max(1, endOfMonth.getDate() - now.getDate() + 1);
 
-    // 3. (ใหม่) คำนวณเงินที่ "ใช้ได้จริง" (สำหรับ Variable)
+    // 3. (อัปเดต) คำนวณเงินที่ "ใช้ได้จริง" (สำหรับ Variable)
     const availableToSpend =
       netAssets - totalRemainingBudgets - remainingFixedToPay;
 
@@ -330,20 +335,23 @@ function Finance() {
     };
   }, [
     totalAssets,
-    totalLiabilities, // (ใหม่)
-    totalReceivables, // (ใหม่)
+    // totalLiabilities, (ลบออก)
+    totalVariableLiabilities, // (ใหม่)
+    totalReceivables,
     totalRemainingBudgets,
     settings,
     todayTransactions,
     accounts,
     budgets,
-    estimatedFixedExpense, // (อัปเดต)
-    paidFixedThisMonth, // (ใหม่)
-    paidFixedThisMonth_Auto, // (ใหม่)
+    liabilities, // (ใหม่) เพิ่ม dependency
+    estimatedFixedExpense,
+    paidFixedThisMonth,
+    paidFixedThisMonth_Auto,
   ]);
 
   // (Handler สำหรับลบ Account - เหมือนเดิม)
   const handleDeleteAccount = async (id, name) => {
+    // ... (เหมือนเดิม)
     if (window.confirm(`คุณแน่ใจหรือไม่ว่าต้องการลบ "${name}"?`)) {
       await db.accounts.delete(id);
     }
@@ -351,6 +359,7 @@ function Finance() {
 
   // (Handlers สำหรับ "ลบ" และ "เปิดหน้าแก้ไข" หนี้สิน/ค้างรับ - เหมือนเดิม)
   const handleDeleteDue = async (type, id, name) => {
+    // ... (เหมือนเดิม)
     if (window.confirm(`คุณแน่ใจหรือไม่ว่าต้องการลบ "${name}"?`)) {
       try {
         if (type === "liability") {
@@ -365,6 +374,7 @@ function Finance() {
   };
 
   const handleOpenEditDue = (type, item) => {
+    // ... (เหมือนเดิม)
     setDueToEdit({ type, item });
   };
 
@@ -376,14 +386,15 @@ function Finance() {
     !budgets ||
     !settings ||
     !tags ||
-    lastMonthFixedTotal === undefined || // (รอ Auto-Estimate)
-    paidFixedThisMonth_Auto === null // (ใหม่) (รอ Auto-Paid)
+    lastMonthFixedTotal === undefined ||
+    paidFixedThisMonth_Auto === null
   ) {
     return <div>กำลังโหลดข้อมูลการเงิน...</div>;
   }
 
   // (หน้าจอ First Time Setup - เหมือนเดิม)
   if (accounts.length === 0 && !isAddingAccount) {
+    // ... (เหมือนเดิม)
     return (
       <div style={styles.firstTimeSetup}>
         <h3>ตั้งค่าบัญชีการเงิน</h3>
@@ -406,7 +417,7 @@ function Finance() {
   return (
     <div style={styles.page}>
       <div style={styles.scrollArea}>
-        {/* --- 1. สรุปสินทรัพย์ (Accounts) (อัปเดต) --- */}
+        {/* --- 1. สรุปสินทรัพย์ (Accounts) (เหมือนเดิม) --- */}
         <div style={styles.section}>
           <div style={styles.sectionHeader}>
             <h3 style={styles.sectionTitle}>สินทรัพย์ (Accounts)</h3>
@@ -427,7 +438,6 @@ function Finance() {
                 )}
                 <span>{acc.name}</span>
               </div>
-              {/* (อัปเดต) เพิ่มปุ่ม Edit */}
               <div style={styles.accountBalance}>
                 <span>{acc.balance.toLocaleString()}</span>
                 <button
@@ -467,7 +477,7 @@ function Finance() {
                   ...styles.hpBarInner,
                   width: `${
                     (dailySpendable.used / (dailySpendable.limit + 0.0001)) *
-                    100 // (ป้องกัน 0/0)
+                    100
                   }%`,
                   backgroundColor: "#ffaaaa",
                 }}
@@ -482,6 +492,7 @@ function Finance() {
 
         {/* --- 2. งบประมาณ (Budgets) (เหมือนเดิม) --- */}
         <div style={styles.section}>
+          {/* ... (โค้ดส่วน Budgets เหมือนเดิม) ... */}
           <div style={styles.sectionHeader}>
             <h3 style={styles.sectionTitle}>งบประมาณ (Budgets)</h3>
             <button
@@ -530,10 +541,11 @@ function Finance() {
           </div>
         </div>
 
-        {/* --- 3. ค้างรับ / หนี้สิน (เหมือนเดิม) --- */}
+        {/* --- 3. ค้างรับ / หนี้สิน (อัปเดต) --- */}
         <div style={styles.grid2}>
-          {/* ค้างรับ (ซ้าย) */}
+          {/* ค้างรับ (ซ้าย - เหมือนเดิม) */}
           <div style={styles.section}>
+            {/* ... (โค้ดค้างรับ เหมือนเดิม) ... */}
             <div style={styles.sectionHeader}>
               <h3 style={styles.sectionTitle}>ค้างรับ</h3>
               <button
@@ -587,7 +599,7 @@ function Finance() {
             </div>
           </div>
 
-          {/* หนี้สิน (ขวา) */}
+          {/* หนี้สิน (ขวา - อัปเดต) */}
           <div style={styles.section}>
             <div style={styles.sectionHeader}>
               <h3 style={styles.sectionTitle}>หนี้สิน</h3>
@@ -638,6 +650,7 @@ function Finance() {
             </div>
             <div style={styles.totalRowSmall}>
               <strong>รวมหนี้สิน:</strong>
+              {/* (อัปเดต) ใช้ totalLiabilities (ตัวเต็ม) สำหรับการแสดงผล */}
               <strong style={{ color: "#ffaaaa" }}>
                 {totalLiabilities.toLocaleString()}
               </strong>
@@ -654,6 +667,7 @@ function Finance() {
       {/* จบ Scroll Area */}
       {/* 5. Sticky Footer (เหมือนเดิม) */}
       <div style={styles.stickyFooter}>
+        {/* ... (เหมือนเดิม) ... */}
         <button
           onClick={() => setIsTxModalOpen("income")}
           style={styles.txButtonGreen}
@@ -667,11 +681,10 @@ function Finance() {
           <ArrowUp size={20} /> รายจ่าย
         </button>
       </div>
-      {/* --- Modals (อัปเดต) --- */}
+      {/* --- Modals (อัปเดต Props) --- */}
       {isAddingAccount && (
         <AddAccountModal onClose={() => setIsAddingAccount(false)} />
       )}
-      {/* (ใหม่) Modal แก้ไขบัญชี */}
       {accountToEdit && (
         <EditAccountModal
           account={accountToEdit}
@@ -703,12 +716,15 @@ function Finance() {
           onNavigateToTags={() => navigate("/tag-manager")}
         />
       )}
+      {/* (อัปเดต) ส่ง Props (estimatedFixedExpense, paidFixedThisMonth) ไป PaymentModal */}
       {paymentModal && (
         <PaymentModal
           info={paymentModal}
           accounts={accounts}
           budgets={budgets}
           onClose={() => setPaymentModal(null)}
+          estimatedFixedExpense={estimatedFixedExpense}
+          paidFixedThisMonth={paidFixedThisMonth}
         />
       )}
       {isManagingBudgets && (
@@ -730,7 +746,7 @@ function Finance() {
           onClose={() => setBudgetAddModal(null)}
         />
       )}
-      {/* (อัปเดต) ส่ง Props สูตรใหม่ไป TransactionModal */}
+      {/* (อัปเดต) ส่ง Props (totalVariableLiabilities) ไป TransactionModal */}
       {isTxModalOpen && (
         <TransactionModal
           type={isTxModalOpen}
@@ -741,20 +757,19 @@ function Finance() {
           onNavigateToTags={() => navigate("/tag-manager")}
           dailySpendable={dailySpendable}
           totalAssets={totalAssets}
-          totalReceivables={totalReceivables} // (ใหม่)
-          totalLiabilities={totalLiabilities} // (ใหม่)
+          totalReceivables={totalReceivables}
+          totalVariableLiabilities={totalVariableLiabilities} // (อัปเดต)
           totalRemainingBudgets={totalRemainingBudgets}
-          fixedExpense={estimatedFixedExpense} // (ใช้ชื่อ
-          paidFixedThisMonth={paidFixedThisMonth} // (ใหม่)
+          estimatedFixedExpense={estimatedFixedExpense} // (เปลี่ยนชื่อ prop)
+          paidFixedThisMonth={paidFixedThisMonth}
         />
       )}
-      {/* (อัปเดต) ส่ง Props ไป FixedExpenseModal */}
       {isFixedExpenseModalOpen && (
         <FixedExpenseModal
           settings={settings}
           onClose={() => setIsFixedExpenseModalOpen(false)}
           lastMonthFixedTotal={lastMonthFixedTotal}
-          paidFixedThisMonth_Auto={paidFixedThisMonth_Auto} // (ใหม่)
+          paidFixedThisMonth_Auto={paidFixedThisMonth_Auto}
         />
       )}
     </div>
@@ -773,11 +788,11 @@ function TransactionModal({
   onNavigateToTags,
   dailySpendable,
   totalAssets,
-  totalReceivables, // (ใหม่)
-  totalLiabilities, // (ใหม่)
+  totalReceivables,
+  totalVariableLiabilities, // (อัปเดต)
   totalRemainingBudgets,
-  fixedExpense, // (นี่คือ 'estimatedFixedExpense')
-  paidFixedThisMonth, // (ใหม่)
+  estimatedFixedExpense, // (อัปเดต)
+  paidFixedThisMonth,
 }) {
   const isExpense = type === "expense";
   const title = isExpense ? "บันทึกรายจ่าย" : "บันทึกรายรับ";
@@ -809,27 +824,44 @@ function TransactionModal({
       return;
     }
 
-    // (อัปเดต) Alert System (ใช้สูตรใหม่)
+    // (ใหม่) Alert System (Fixed Expense Overpayment)
+    if (isExpense && classification === "fixed") {
+      if (paidFixedThisMonth + numAmount > estimatedFixedExpense) {
+        if (
+          !window.confirm(
+            `⚠️ แจ้งเตือน: รายจ่ายคงที่นี้ (${numAmount.toLocaleString()}) จะทำให้ยอดใช้จ่ายคงที่เกินงบประมาณที่ตั้งไว้!\n\n` +
+              `งบประมาณ: ${estimatedFixedExpense.toLocaleString()}\n` +
+              `จ่ายแล้ว: ${paidFixedThisMonth.toLocaleString()}\n` +
+              `ใหม่ (รวม): ${(
+                paidFixedThisMonth + numAmount
+              ).toLocaleString()}\n\n` +
+              `กรุณาไปที่ 'ตั้งค่า' (ปุ่ม ℹ️) เพื่อเพิ่มงบประมาณรายจ่ายคงที่ก่อนดำเนินการต่อ\n\n` +
+              `คุณต้องการดำเนินการต่อหรือไม่? (ไม่แนะนำ)`
+          )
+        ) {
+          return; // Stop execution
+        }
+      }
+    }
+
+    // (อัปเดต) Alert System (Variable Expense - ใช้สูตรใหม่)
     if (isExpense && classification === "variable") {
       const newDailyUsed = dailySpendable.used + numAmount;
       if (newDailyUsed > dailySpendable.limit) {
-        // (คำนวณวงเงินวันพรุ่งนี้ใหม่ตามสูตร)
         const tomorrowRemainingDays = Math.max(
           1,
           dailySpendable.remainingDays - 1
         );
 
-        // (ใหม่) เงินตั้งต้นใหม่ (Net Assets) หลังหัก
+        // (อัปเดต) คำนวณ NetAssets ใหม่
         const newNetAssets =
-          totalAssets - numAmount + totalReceivables - totalLiabilities;
+          totalAssets - numAmount + totalReceivables - totalVariableLiabilities;
 
-        // (ใหม่) Fixed ที่ยังต้องจ่าย
         const remainingFixedToPay = Math.max(
           0,
-          fixedExpense - paidFixedThisMonth
+          estimatedFixedExpense - paidFixedThisMonth
         );
 
-        // (ใหม่) เงินที่เหลือให้ใช้
         const newAvailableToSpend =
           newNetAssets - totalRemainingBudgets - remainingFixedToPay;
 
@@ -853,6 +885,7 @@ function TransactionModal({
     }
 
     try {
+      // ... (Logic การหักเงิน/เพิ่มเงิน/เพิ่ม transaction/แบ่งงบ - เหมือนเดิม) ...
       const account = await db.accounts.get(Number(accountId));
 
       if (isExpense) {
@@ -916,6 +949,7 @@ function TransactionModal({
   return (
     <div style={styles.modalOverlay}>
       <div style={styles.modalContent}>
+        {/* ... (JSX ของ Modal - เหมือนเดิม) ... */}
         <div style={styles.modalHeader}>
           <h3>{title}</h3>
           <button onClick={onClose} style={styles.closeButton}>
@@ -1019,7 +1053,7 @@ function TransactionModal({
 }
 
 // =======================================================
-// === (อัปเดต) Component: Modal ตั้งค่า Fixed Expense ===
+// === Component: Modal ตั้งค่า Fixed Expense (เหมือนเดิม) ===
 // =======================================================
 function FixedExpenseModal({
   settings,
@@ -1027,49 +1061,39 @@ function FixedExpenseModal({
   lastMonthFixedTotal,
   paidFixedThisMonth_Auto,
 }) {
-  // (เดิม) State สำหรับ "ยอดประมาณการ"
+  // ... (โค้ดเหมือนเดิม)
   const [estimateMode, setEstimateMode] = useState(
     settings.find((s) => s.key === "fixedExpenseMode")?.value || "manual"
   );
   const [estimateAmount, setEstimateAmount] = useState(
     settings.find((s) => s.key === "manualFixedExpense")?.value || 10000
   );
-
-  // (ใหม่) State สำหรับ "ยอดจ่ายแล้ว"
   const [paidMode, setPaidMode] = useState(
     settings.find((s) => s.key === "paidFixedMode")?.value || "auto"
   );
   const [paidAmount, setPaidAmount] = useState(
     settings.find((s) => s.key === "manualPaidFixedThisMonth")?.value || 0
   );
-
-  // (เดิม) เช็คว่ามีข้อมูลเดือนที่แล้ว (สำหรับ Estimate)
   const hasLastMonthData = lastMonthFixedTotal !== null;
 
   const handleSave = async () => {
-    // (เดิม) ตรวจสอบ Estimate
     if (estimateMode === "auto" && !hasLastMonthData) {
       alert(
         "ไม่สามารถเลือกโหมดอัตโนมัติ (สำหรับยอดประมาณการ) ได้ เพราะยังไม่มีข้อมูลของเดือนที่แล้ว"
       );
       return;
     }
-
     try {
-      // (เดิม) บันทึก "ยอดประมาณการ"
       await db.settings.put({ key: "fixedExpenseMode", value: estimateMode });
       await db.settings.put({
         key: "manualFixedExpense",
         value: Number(estimateAmount),
       });
-
-      // (ใหม่) บันทึก "ยอดจ่ายแล้ว"
       await db.settings.put({ key: "paidFixedMode", value: paidMode });
       await db.settings.put({
         key: "manualPaidFixedThisMonth",
         value: Number(paidAmount),
       });
-
       onClose();
     } catch (e) {
       console.error("Failed to save settings:", e);
@@ -1079,6 +1103,7 @@ function FixedExpenseModal({
   return (
     <div style={styles.modalOverlay}>
       <div style={styles.modalContent}>
+        {/* ... (JSX ของ Modal - เหมือนเดิม) ... */}
         <div style={styles.modalHeader}>
           <h3>ตั้งค่ารายจ่ายคงที่ (สำหรับคำนวณ)</h3>
           <button onClick={onClose} style={styles.closeButton}>
@@ -1086,7 +1111,6 @@ function FixedExpenseModal({
           </button>
         </div>
         <div style={styles.modalForm}>
-          {/* --- 1. ส่วนประมาณการ (Estimate) --- */}
           <div style={styles.inputGroup}>
             <label style={{ fontWeight: "bold", fontSize: "1.1rem" }}>
               1. ยอดประมาณการ (ทั้งเดือน)
@@ -1119,10 +1143,7 @@ function FixedExpenseModal({
               />
             </div>
           )}
-
           <hr style={styles.hr} />
-
-          {/* --- 2. ส่วนจ่ายแล้ว (Paid) --- */}
           <div style={styles.inputGroup}>
             <label style={{ fontWeight: "bold", fontSize: "1.1rem" }}>
               2. ยอดที่จ่ายไปแล้ว (เดือนนี้)
@@ -1153,7 +1174,6 @@ function FixedExpenseModal({
               />
             </div>
           )}
-
           <button onClick={handleSave} style={styles.saveButton}>
             บันทึก
           </button>
@@ -1164,9 +1184,10 @@ function FixedExpenseModal({
 }
 
 // ===================================================================
-// === (อัปเดต) Component: 'BudgetManagerModal' (เหมือนเดิม) ===
+// === Component: 'BudgetManagerModal' (เหมือนเดิม) ===
 // ===================================================================
 function BudgetManagerModal({ budgets, onClose }) {
+  // ... (เหมือนเดิม)
   const [newName, setNewName] = useState("");
   const [editingBudget, setEditingBudget] = useState(null);
 
@@ -1205,6 +1226,7 @@ function BudgetManagerModal({ budgets, onClose }) {
   return (
     <>
       <div style={styles.modalOverlay}>
+        {/* ... (JSX ของ Modal - เหมือนเดิม) ... */}
         <div style={styles.modalContent}>
           <div style={styles.modalHeader}>
             <h3>จัดการงบประมาณ</h3>
@@ -1266,9 +1288,10 @@ function BudgetManagerModal({ budgets, onClose }) {
 }
 
 // ==============================================================
-// === (อัปเดต) Component: 'EditBudgetModal' (เหมือนเดิม) ===
+// === Component: 'EditBudgetModal' (เหมือนเดิม) ===
 // ==============================================================
 function EditBudgetModal({ budget, onClose }) {
+  // ... (เหมือนเดิม)
   const isDefault = useMemo(
     () => BUDGET_CATEGORIES.some((c) => c.key === budget.name),
     [budget.name]
@@ -1316,6 +1339,7 @@ function EditBudgetModal({ budget, onClose }) {
   return (
     <div style={styles.modalOverlay}>
       <div style={styles.modalContent}>
+        {/* ... (JSX ของ Modal - เหมือนเดิม) ... */}
         <div style={styles.modalHeader}>
           <h3>แก้ไขงบประมาณ</h3>
           <button onClick={onClose} style={styles.closeButton}>
@@ -1362,6 +1386,7 @@ function EditBudgetModal({ budget, onClose }) {
 
 // (Component 'BudgetLogModal' - เหมือนเดิม)
 function BudgetLogModal({ budget, accounts, onClose }) {
+  // ... (เหมือนเดิม)
   const title = `ใช้เงินงบ: ${getBudgetName(budget.name)}`;
   const [amount, setAmount] = useState(0);
   const [accountId, setAccountId] = useState(accounts[0]?.id || "");
@@ -1399,6 +1424,7 @@ function BudgetLogModal({ budget, accounts, onClose }) {
   return (
     <div style={styles.modalOverlay}>
       <div style={styles.modalContent}>
+        {/* ... (JSX ของ Modal - เหมือนเดิม) ... */}
         <div style={styles.modalHeader}>
           <h3>{title}</h3>
           <button onClick={onClose} style={styles.closeButton}>
@@ -1440,6 +1466,7 @@ function BudgetLogModal({ budget, accounts, onClose }) {
 
 // (Component 'BudgetAddModal' - เหมือนเดิม)
 function BudgetAddModal({ budget, onClose }) {
+  // ... (เหมือนเดิม)
   const title = `เพิ่มเพดานงบ: ${getBudgetName(budget.name)}`;
   const [amount, setAmount] = useState(0);
   const handleSubmit = async () => {
@@ -1460,6 +1487,7 @@ function BudgetAddModal({ budget, onClose }) {
   return (
     <div style={styles.modalOverlay}>
       <div style={styles.modalContent}>
+        {/* ... (JSX ของ Modal - เหมือนเดิม) ... */}
         <div style={styles.modalHeader}>
           <h3>{title}</h3>
           <button onClick={onClose} style={styles.closeButton}>
@@ -1488,6 +1516,7 @@ function BudgetAddModal({ budget, onClose }) {
 
 // (Component 'AddAccountModal' - เหมือนเดิม)
 function AddAccountModal({ onClose }) {
+  // ... (เหมือนเดิม)
   const [name, setName] = useState("");
   const [balance, setBalance] = useState(0);
   const handleSubmit = async () => {
@@ -1505,6 +1534,7 @@ function AddAccountModal({ onClose }) {
   return (
     <div style={styles.modalOverlay}>
       <div style={styles.modalContent}>
+        {/* ... (JSX ของ Modal - เหมือนเดิม) ... */}
         <div style={styles.modalHeader}>
           <h3>เพิ่มบัญชีใหม่</h3>
           <button onClick={onClose} style={styles.closeButton}>
@@ -1540,9 +1570,10 @@ function AddAccountModal({ onClose }) {
 }
 
 // ==============================================================
-// === (ใหม่) Component: 'EditAccountModal' (สำหรับแก้ไขบัญชี) ===
+// === Component: 'EditAccountModal' (เหมือนเดิม) ===
 // ==============================================================
 function EditAccountModal({ account, onClose }) {
+  // ... (เหมือนเดิม)
   const [name, setName] = useState(account.name);
   const [balance, setBalance] = useState(account.balance);
 
@@ -1565,6 +1596,7 @@ function EditAccountModal({ account, onClose }) {
   return (
     <div style={styles.modalOverlay}>
       <div style={styles.modalContent}>
+        {/* ... (JSX ของ Modal - เหมือนเดิม) ... */}
         <div style={styles.modalHeader}>
           <h3>แก้ไขบัญชี</h3>
           <button onClick={onClose} style={styles.closeButton}>
@@ -1600,7 +1632,7 @@ function EditAccountModal({ account, onClose }) {
 }
 
 // ==============================================================
-// === (อัปเดต) Component: 'AddDueModal' (เหมือนเดิม) ===
+// === Component: 'AddDueModal' (เหมือนเดิม) ===
 // ==============================================================
 function AddDueModal({
   type,
@@ -1609,6 +1641,7 @@ function AddDueModal({
   onNavigateToTags,
   itemToEdit = null,
 }) {
+  // ... (เหมือนเดิม)
   const isLiability = type === "liability";
   const isEditMode = itemToEdit !== null;
 
@@ -1677,6 +1710,7 @@ function AddDueModal({
   return (
     <div style={styles.modalOverlay}>
       <div style={styles.modalContent}>
+        {/* ... (JSX ของ Modal - เหมือนเดิม) ... */}
         <div style={styles.modalHeader}>
           <h3>{title}</h3>
           <button onClick={onClose} style={styles.closeButton}>
@@ -1758,9 +1792,16 @@ function AddDueModal({
 }
 
 // =======================================================
-// === (อัปเดต) Component: 'PaymentModal' (เหมือนเดิม) ===
+// === (อัปเดต) Component: 'PaymentModal' (จ่าย/รับ) ===
 // =======================================================
-function PaymentModal({ info, accounts, budgets, onClose }) {
+function PaymentModal({
+  info,
+  accounts,
+  budgets,
+  onClose,
+  estimatedFixedExpense,
+  paidFixedThisMonth, // (เพิ่ม Props)
+}) {
   const { type, item } = info;
   const isPaying = type === "pay";
   const title = isPaying ? `จ่ายหนี้: ${item.name}` : `รับเงิน: ${item.name}`;
@@ -1793,6 +1834,27 @@ function PaymentModal({ info, accounts, budgets, onClose }) {
       if (!account) throw new Error("Account not found");
 
       if (isPaying) {
+        // (ใหม่) Alert System (Fixed Expense Overpayment)
+        if (classification === "fixed") {
+          if (paidFixedThisMonth + item.amount > estimatedFixedExpense) {
+            if (
+              !window.confirm(
+                `⚠️ แจ้งเตือน: การชำระหนี้คงที่นี้ (${item.amount.toLocaleString()}) จะทำให้ยอดใช้จ่ายคงที่เกินงบประมาณที่ตั้งไว้!\n\n` +
+                  `งบประมาณ: ${estimatedFixedExpense.toLocaleString()}\n` +
+                  `จ่ายแล้ว: ${paidFixedThisMonth.toLocaleString()}\n` +
+                  `ใหม่ (รวม): ${(
+                    paidFixedThisMonth + item.amount
+                  ).toLocaleString()}\n\n` +
+                  `กรุณาไปที่ 'ตั้งค่า' (ปุ่ม ℹ️) เพื่อเพิ่มงบประมาณรายจ่ายคงที่ก่อนดำเนินการต่อ\n\n` +
+                  `คุณต้องการดำเนินการต่อหรือไม่? (ไม่แนะนำ)`
+              )
+            ) {
+              return; // Stop execution
+            }
+          }
+        }
+
+        // ... (Logic การหักเงิน - เหมือนเดิม) ...
         if (account.balance < item.amount) {
           alert("เงินในบัญชีไม่พอ!");
           return;
@@ -1811,6 +1873,7 @@ function PaymentModal({ info, accounts, budgets, onClose }) {
           classification: classification,
         });
       } else {
+        // ... (Logic การรับเงิน - เหมือนเดิม) ...
         await db.accounts.update(account.id, {
           balance: account.balance + item.amount,
         });
@@ -1857,6 +1920,7 @@ function PaymentModal({ info, accounts, budgets, onClose }) {
   return (
     <div style={styles.modalOverlay}>
       <div style={styles.modalContent}>
+        {/* ... (JSX ของ Modal - เหมือนเดิม) ... */}
         <div style={styles.modalHeader}>
           <h3>{title}</h3>
           <button onClick={onClose} style={styles.closeButton}>
@@ -1919,9 +1983,9 @@ function PaymentModal({ info, accounts, budgets, onClose }) {
   );
 }
 
-// === CSS Styles (อัปเดต) ===
-// (เพิ่ม helpText style)
+// === CSS Styles (เหมือนเดิม) ===
 const styles = {
+  // ... (CSS ทั้งหมดเหมือนเดิม)
   page: {
     display: "flex",
     flexDirection: "column",
@@ -2267,7 +2331,6 @@ const styles = {
     flexDirection: "column",
     gap: "5px",
   },
-  // (ใหม่)
   helpText: {
     fontSize: "0.9rem",
     color: "#aaa",
